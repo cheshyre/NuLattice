@@ -38,7 +38,7 @@ python3 Example_CCSD.py
 To contribute to `NuLattice`. please fork the repository, 
 create a new branch with your feature, 
 and once it is complete open a pull request to contribute to the main project.
-See [Contributing](?tab=contributing-ov-file) for more details, including how to set up a private development fork of `NuLattice`.
+See [Contributing](CONTRIBUTING.md) for more details, including how to set up a private development fork of `NuLattice`.
 Consistent contributors will be given the option to also serve as maintainers of the project.
 
 ## Citing
