@@ -235,10 +235,6 @@ def get_all_interactions(part,hole,mycontact, sparse = False):
         elif ket == ("p","h"):
             if bra == ("p","p"):
                 vint = None
-#                indices= ((c,d,a,b),(d,c,a,b))
-#                signs  = (1.0,-1.0)
-#                vint = v_ppph
-#                currSparse = sparse
             else:
                 if bra == ("p","h"): 
                     vint = v_phph
@@ -255,14 +251,6 @@ def get_all_interactions(part,hole,mycontact, sparse = False):
                 vint = v_hhhh
             else:
                 vint = None
-#                if bra == ("p","h"): 
-#                    vint = v_phhh
-#                    indices= ((c,d,a,b),(c,d,b,a))
-#                    signs  = (1.0,-1.0)
-#                elif bra == ("p","p"): 
-#                    vint = v_pphh
-#                    indices= ((c,d,a,b),(c,d,b,a),(d,c,a,b),(d,c,b,a))
-#                    signs  = (1.0,-1.0,-1.0,1.0)
 
         if vint is not None:
             for i, indx in enumerate(indices):
