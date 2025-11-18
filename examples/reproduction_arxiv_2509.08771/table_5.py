@@ -20,7 +20,7 @@ nstat =  len(my_basis)
 with_imsrg2 = True
 
 if with_imsrg2:
-    print("Warning: Evaluating IMSRG(2) results for L=3. This will take 16 GB of memory and a dozen hours.")
+    print("Warning: Evaluating IMSRG(2) results for L=3. This will take 16 GB of memory and 10s of hours.")
 else:
     print("Skipping IMSRG(2) because it is expensive. Set \"with_imsrg2 = True\" to also evaluate IMSRG(2) results.")
 
