@@ -27,7 +27,7 @@ and/or by selecting a different reference state.
 They differ in how the Hamiltonian is constructed, 
 with `Example_CCSD` focusing on the pionless effective field theory case
 explored in arXiv:2509.08771.
-`Example_CCSD2` uess functions
+`Example_CCSD2` uses functions
 that are extensible to other interactions,
 exhibiting how one would perform CCSD computations with improved Hamiltonians.
 
