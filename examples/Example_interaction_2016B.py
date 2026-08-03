@@ -6,6 +6,8 @@ import NuLattice.lattice as lat
 import NuLattice.constants_NLEFT as nleftConsts
 import NuLattice.HF.hartree_fock as hf
 import NuLattice.references as ref
+import NuLattice.operators.jax_adapters as jax_help
+
 if __name__ == '__main__':
     myL = 4
     a = 1.0 / 100.0
@@ -56,7 +58,10 @@ if __name__ == '__main__':
     mix = 0.7
     max_iter=100
     verbose = True
-    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, [], dens,
+    myTkin = jax_help.one_body_from_list(myTkin, len(my_basis))
+    my_VNN = jax_help.two_body_from_sparse(v_NL + v_L + v_OPE, len(my_basis))
+    my_V3N = jax_help.empty_three_body(len(my_basis))
+    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
     if conv:
