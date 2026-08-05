@@ -1,11 +1,17 @@
-import sys, pathlib
+import sys
+import pathlib
+
 sys.path.append(str(pathlib.Path(__file__).parent / ".."))
+
+from NuLattice.utils._jax_types import OneBodyOperator, TwoBodyOperator
+import NuLattice.operators.jax_adapters as jax_help
 import NuLattice.operators.one_body_operators as obops
 import NuLattice.operators.two_body_operators as tbops
 import NuLattice.lattice as lat
 import NuLattice.constants_NLEFT as nleftConsts
 import NuLattice.HF.hartree_fock as hf
 import NuLattice.references as ref
+
 if __name__ == '__main__':
     thisL = 4
     a = 1.0 / 100.0
@@ -41,7 +47,10 @@ if __name__ == '__main__':
     mix = 0.7
     max_iter=100
     verbose = True
-    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, [], dens,
+    myTkin = OneBodyOperator.from_list(myTkin, len(my_basis))
+    my_VNN = TwoBodyOperator.from_list(my_VNN, len(my_basis))
+    my_V3N = jax_help.empty_three_body(len(my_basis))
+    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
     if conv:
