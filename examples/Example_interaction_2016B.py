@@ -44,7 +44,7 @@ if __name__ == '__main__':
             op1b = op @ op2 
             v_L += twbo.shortRangeV_2body(lattice, myL, sL, 0, cSL, verbose = verbose, op1b = op1b)
     
-    my_VNN = twbo.sparse_to_list_2body(v_NL+v_L+v_OPE, myL)
+    my_VNN = jax_help.two_body_from_sparse(v_NL + v_L + v_OPE, len(my_basis))
     print("number of two-body matrix elements", len(my_VNN))
 
     # We compute oxygen-16
@@ -60,7 +60,6 @@ if __name__ == '__main__':
     max_iter=100
     verbose = True
     myTkin = jax_help.one_body_from_list(myTkin, len(my_basis))
-    my_VNN = jax_help.two_body_from_sparse(v_NL + v_L + v_OPE, len(my_basis))
     my_V3N = jax_help.empty_three_body(len(my_basis))
     erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
