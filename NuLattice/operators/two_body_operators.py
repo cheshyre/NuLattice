@@ -185,12 +185,8 @@ def onePionEx(myL, bpi, a_lat, lattice, verbose = False, mult = 1,g_A=consts.g_A
     if verbose:
         print('Done\nCalculating Densities...', end='')
     dens = [None] * myL ** 3
-    sp_ops = [ob_ops.list_to_sparse1b(ob_ops.spin_x(lattice, myL)), 
-            ob_ops.list_to_sparse1b(ob_ops.spin_y(lattice, myL)), 
-            ob_ops.list_to_sparse1b(ob_ops.spin_z(lattice, myL))]
-    iso_ops = [ob_ops.list_to_sparse1b(ob_ops.tau_x(lattice, myL)), 
-           ob_ops.list_to_sparse1b(ob_ops.tau_y(lattice, myL)), 
-           ob_ops.list_to_sparse1b(ob_ops.tau_z(lattice, myL))]
+    sp_ops = [ob_ops._spin(lattice, myL, axis) for axis in ("x", "y", "z")]
+    iso_ops = [ob_ops._tau(lattice, myL, axis) for axis in ("x", "y", "z")]
     for site in lattice:
         rho_sp = [None] * 3
         for sp in range(3):

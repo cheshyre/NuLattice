@@ -23,7 +23,7 @@ if __name__ == '__main__':
 
     bpi = 0.7
     verbose = True
-    v_OPE = tbops.onePionEx(thisL, bpi, a, lattice, verbose=verbose, g_A=nleftConsts.g_A, f_pi = nleftConsts.f_pi, m_pi_0=nleftConsts.m_pi_0)
+    v_OPE = tbops.onePionEx(thisL, bpi, a, lattice, verbose=verbose, g_A=nleftConsts.g_A, f_pi=nleftConsts.f_pi, m_pi_0=nleftConsts.m_pi_0)
     cNL = -0.2268 / a
     sNL = 0.077
     cINL = 0.02184 / a
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     v_NL=tbops.shortRangeV_2body(lattice, thisL, sL, sNL, cNL, verbose=verbose)
     iso_ops = [obops.pauli_tau_x(lattice, thisL), obops.pauli_tau_y(lattice, thisL), obops.pauli_tau_z(lattice, thisL)]
     for op in iso_ops:
-        v_NL += tbops.shortRangeV_2body(lattice, thisL, sL, sNL, cINL, verbose = verbose, op1b = obops.list_to_sparse1b(op))
+        v_NL += tbops.shortRangeV_2body(lattice, thisL, sL, sNL, cINL, verbose=verbose, op1b=op)
     my_VNN = tbops.sparse_to_list_2body(v_NL+v_OPE, thisL)
     print("number of two-body matrix elements", len(my_VNN))
 
