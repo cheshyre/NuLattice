@@ -97,7 +97,7 @@ class TwoBodyOperator(Operator):
         return 4
 
     @classmethod
-    def from_sparse(
+    def from_scipy_coo(
         cls,
         matrix,
         nstat: int,
@@ -118,7 +118,7 @@ class TwoBodyOperator(Operator):
         nstat: int,
     ):
         matrix = matrix.tocoo()
-        return cls.from_scipy_csr(matrix, nstat)
+        return cls.from_scipy_coo(matrix, nstat)
 
 class ThreeBodyOperator(Operator):
     def __init__(self, indices, values, nstat):
