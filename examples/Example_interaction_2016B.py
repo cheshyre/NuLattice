@@ -1,4 +1,5 @@
-import sys, pathlib
+import sys
+import pathlib
 sys.path.append(str(pathlib.Path(__file__).parent / ".."))
 import NuLattice.operators.one_body_operators as obo
 import NuLattice.operators.two_body_operators as twbo
