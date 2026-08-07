@@ -21,18 +21,22 @@ def _occupied_orbitals(fock: Array, npart, guess: Array, max_iter: float) -> tup
 def density_from_orbitals(orbitals: Array) -> Array:
     return hermitianize(orbitals @ _adjoint(orbitals))
 
-@jax.jit
-def _local_orthonormalize(V: Array) -> Array:
+def _cholesky_qr(x: Array) -> Array:
     # Compute the small overlap matrix (2k x 2k).
-    S = jnp.dot(_adjoint(V), V)  # calls (cheap) AllReduce on mesh
+    S = _adjoint(x) @ x
     S += SHIFT_REGULARIZATION * jnp.eye(S.shape[0], dtype=S.dtype)
     L = jnp.linalg.cholesky(S)
     L_inv = jnp.linalg.inv(L)
-    return jnp.dot(V, _adjoint(L_inv))
+    return x @ _adjoint(L_inv)
 
-@jax.jit
 def _cqr2(V: Array) -> Array:
-    return _local_orthonormalize(_local_orthonormalize(V))
+    return _cholesky_qr(_cholesky_qr(V))
+
+def _regularize_denominator(denom: Array, shift: float) -> Array:
+    """Bound small Davidson denominators without reversing their sign."""
+    signed_shift = jnp.where(denom >= 0.0, shift, -shift)
+    return jnp.where(jnp.abs(denom) < shift, signed_shift, denom)
+
 
 @partial(jax.jit, static_argnames=("npart",))
 def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
@@ -51,6 +55,7 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     D = jnp.diag(H) # Extract diagonal for the preconditioner
 
     # Initialize a static subspace V of size (nstat, 2 * npart)
+    # WARNING: this only initializes k vectors, but it works for now 
     V = jnp.zeros((nstat, 2 * npart), dtype=H.dtype)
     V = V.at[:, :npart].set(guess_vecs)
     V = _cqr2(V)
@@ -59,8 +64,7 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
         V_sub, _ = state
 
         # Project into subspace: M = VT H V -> (2k, 2k)
-        HV = jnp.dot(H, V_sub)
-        M = jnp.dot(_adjoint(V_sub), HV)
+        M = _adjoint(V_sub) @ (H @ V_sub)
 
         # local eigen solution
         vals, evecs = jnp.linalg.eigh(M)
@@ -68,13 +72,13 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
         best_vals = vals[:npart]
         best_evecs = evecs[:, :npart]
 
-        X = jnp.dot(V_sub, best_evecs)
-        HX = jnp.dot(H, X)
+        X = V_sub @ best_evecs
+        HX = H @ X
         R = HX - X * best_vals[None, :]
 
         # preconditioner: (D - energy)^{-1} * R
         denom = D[:, None] - best_vals[None, :]
-        denom = jnp.where(jnp.abs(denom) < DIVISION_BY_ZERO_THRESHOLD, DIVISION_BY_ZERO_THRESHOLD, denom)
+        denom = _regularize_denominator(denom, SHIFT_REGULARIZATION)
         Y = R / denom
 
         V_next = jnp.concatenate([X, Y], axis=1)
@@ -87,7 +91,7 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     final_V, final_vals = jax.lax.fori_loop(0, max_iter, body_fun, (V, initial_vals))
 
     # Final extraction of the converged vectors
-    final_M = jnp.dot(_adjoint(final_V), jnp.dot(H, final_V))
+    final_M = _adjoint(final_V) @ (H @ final_V)
     _, final_evecs = jnp.linalg.eigh(final_M)
     vecs_out = jnp.dot(final_V, final_evecs[:, :npart])
 

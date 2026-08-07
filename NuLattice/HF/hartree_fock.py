@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 from NuLattice.utils._jax_types import ShardingManager
 
-from .subspace_solver import _occupied_orbitals
+from .davidson import davidson_eigh
 
 Array = jax.Array
 EigenSolver = Literal["dense", "davidson"]
@@ -107,11 +107,12 @@ def _scf_step(
     fock = build_fock(h1, gamma, omega)
     energy = hf_energy(dens, h1, gamma, omega)
 
-    if diagonalizer == "dense":
-        _, orbitals = jnp.linalg.eigh(fock)
-        occ = orbitals[:, :npart]
-    else:
-        _, occ = _occupied_orbitals(fock, npart, prev_vecs, davidson_max_iter)
+    _, orbitals = (
+        jnp.linalg.eigh(fock)
+        if diagonalizer == "dense"
+        else davidson_eigh(fock, npart, prev_vecs, davidson_max_iter)
+    )
+    occ = orbitals[:, :npart]
 
     new_density = occ @ _adjoint(occ)
 
@@ -161,6 +162,7 @@ def solve_HF(
     verbose: bool = False,
     sm: ShardingManager = None,
     diagonalizer: EigenSolver = "davidson",
+    keep_all_orbitals: bool = True,
 ):
 
     if diagonalizer not in {"davidson", "dense"}:
@@ -187,14 +189,21 @@ def solve_HF(
         if verbose:
             print(f"Iter {i}: E={energy:.8f}, dE={dE:.6e}, dRho={diff_dens:.6e}")
 
-        # if (diff_dens < eps or dE < eps) and i > 1:
         if (diff_dens < eps):
             converged = True
             break
 
         prev_energy = energy
 
-    return energy, occ, converged
+    if keep_all_orbitals:
+        gamma, omega = build_mean_fields(_dens, v2_idx, v2_val)
+        fock = build_fock(h1_dense, gamma, omega)
+        _, orbs = jnp.linalg.eigh(fock)
+    else:
+        orbs = occ
+
+
+    return energy, orbs, converged
 
 def occupied_orbitals_from_diagonal_density(dens: jax.Array, npart: int) -> jax.Array:
     indices = jnp.argsort(jnp.real(jnp.diag(dens)))[-npart:]
