@@ -1,364 +1,320 @@
-"""
-Provides functions for all of the 3 body interactions
-"""
+from typing import List, Tuple, Union
+
+import jax
+import jax.numpy as jnp
 import numpy as np
 
-def get_3NF(part, hole, my3body):
+from NuLattice.utils._jax_types import ThreeBodyOperator, TwoBodyOperator
+
+# TODO: avoid jnp.zeros eager allocation
+
+def get_3NF(
+    part: List[int],
+    hole: List[int],
+    op3: ThreeBodyOperator,
+) -> Tuple[ThreeBodyOperator, ...]:
     """
-    This routine takes the relatively small number of three-body matrix elements in mycontact
-    and sorts them into the four-indexed interaction tensors. It also anti-symmetrizes the latter
-    whenin and out indices run over the same set of particle/hole indices.
-    The whole thing is a bit tedious but much faster than the function load2bme
-
-    :param part:    list of particle-space indices
-    :type part:     list[int]
-    :param hole:    list of hole-space indices
-    :type hole:     list[int]
-    :param my3body: list of three-body matrix elements
-    :type my3body:  list[(int, int, int, int, int, int, float)]
-    :return:    w_ppp_pph, w_ppp_phh, w_pph_pph, w_ppp_hhh, w_pph_phh, 
-                w_pph_hhh, w_phh_phh, w_phh_hhh, w_hhh_hhh as lists of nonzeros  
-    :rtype:     9 list[(int, int, int, int, int, int, float)]
+    Sorts raw three-body matrix elements into 9 blocks using JAX vectorized ops.
+    Note: This function returns dynamically sized arrays based on the data,
+    so it cannot be JIT-compiled as a whole, but it will run very fast via JAX dispatch.
     """
-    pnum = len(part)
-    hnum = len(hole)
-    
-    vals     = range(hnum)
-    lookup_h = dict(zip(hole,vals))
-    vals     = range(pnum)
-    lookup_p = dict(zip(part,vals))
-    
-    w_ppp_pph = []
-    w_ppp_phh = []
-    w_pph_pph = []
-    w_ppp_hhh = []
-    w_pph_phh = []
-    w_pph_hhh = []
-    w_phh_phh = []
-    w_phh_hhh = []
-    w_hhh_hhh = []
-    
-    for [i1, i2, i3, i4, i5, i6, val] in my3body:
-        # i1<i2<i3 and i4<i5<i6 is stored only in my3body;
-        # we have to populate all permutations 
-        
-        iket = [i1, i2, i3]
-        ibra = [i4, i5, i6]
+    nstat = len(part) + len(hole)
 
-        ket=[]
-        bra=[]
-        for ii in iket:
-            if ii in hole:
-                ket.append("h")
-            else:
-                ket.append("p")
-      
-        for ii in ibra:
-            if ii in hole:
-                bra.append("h")
-            else:
-                bra.append("p")
+    indices, values = op3.indices, op3.values
 
-        ket_char = tuple(ket)
-        bra_char = tuple(bra)
-        
-        ket, sign_ket, ket_indx = order_state(ket_char, lookup_p, lookup_h, i1, i2, i3)
-        bra, sign_bra, bra_indx = order_state(bra_char, lookup_p, lookup_h, i4, i5, i6)
+    max_idx = int(jnp.max(indices))
 
-        [a, b, c] = ket_indx
-        [d, e, f] = bra_indx
-        
-        if ket == ("p", "p", "p"):
-            ket_perms = [[a, b, c], [b, a, c], [c, b, a], [a, c, b], [b, c, a], [c, a, b]]
-            ket_signs = [1, -1, -1, -1, 1, 1]
-            
-            if bra == ("p", "p", "h"):
-                vint = w_ppp_pph
-                bra_perms = [[d, e, f], [e, d, f]]
-                bra_signs = [1, -1]
-                
-            elif bra == ("p", "h", "h"):
-                vint = w_ppp_phh
-                bra_perms = [[d, e, f], [d, f, e]]
-                bra_signs = [1, -1]
-                        
-            elif bra == ("h", "h", "h"):
-                vint = w_ppp_hhh
-                bra_perms = [[d, e, f], [e, d, f], [f, e, d], [d, f, e], [e, f, d], [f, d, e]]
-                bra_signs = [1, -1, -1, -1, 1, 1]
-            else:
-                continue
-                
-        elif ket == ("p", "p", "h"):
-            ket_perms = [[a, b, c], [b, a, c]]
-            ket_signs = [1, -1]
-            
-            if bra == ("p", "p", "h"):
-                vint = w_pph_pph
-                bra_perms = [[d, e, f], [e, d, f]]
-                bra_signs = [1, -1]
+    # 0=hole, 1=particle, -1=invalid
+    type_map = jnp.full((max_idx + 1,), -1, dtype=jnp.int32)
+    local_map = jnp.full((max_idx + 1,), -1, dtype=jnp.int32)
 
-            elif bra == ("p", "h", "h"):
-                vint = w_pph_phh
-                bra_perms = [[d, e, f], [d, f, e]]
-                bra_signs = [1, -1]
-                        
-            elif bra == ("h", "h", "h"):
-                vint = w_pph_hhh
-                bra_perms = [[d, e, f], [e, d, f], [f, e, d], [d, f, e], [e, f, d], [f, d, e]]
-                bra_signs = [1, -1, -1, -1, 1, 1]
-            else:
-                continue
+    h_tens = jnp.array(hole, dtype=jnp.int32)
+    p_tens = jnp.array(part, dtype=jnp.int32)
 
-        elif ket == ("p", "h", "h"):
-            ket_perms = [[a, b, c], [a, c, b]]
-            ket_signs = [1, -1]
-            
-            if bra == ("p", "h", "h"):
-                vint = w_phh_phh
-                bra_perms = [[d, e, f], [d, f, e]]
-                bra_signs = [1, -1]
-                
-            elif bra == ("h", "h", "h"):
-                vint = w_pph_hhh
-                bra_perms = [[d, e, f], [e, d, f], [f, e, d], [d, f, e], [e, f, d], [f, d, e]]
-                bra_signs = [1, -1, -1, -1, 1, 1]
-            else:
-                continue
-    
-        elif ket == ("h", "h", "h"):
-            ket_perms = [[a, b, c], [b, a, c], [c, b, a], [a, c, b], [b, c, a], [c, a, b]]
-            ket_signs = [1, -1, -1, -1, 1, 1]
-            
-            if bra == ("h", "h", "h"):
-                vint = w_hhh_hhh
-                bra_perms = [[d, e, f], [e, d, f], [f, e, d], [d, f, e], [e, f, d], [f, d, e]]
-                bra_signs = [1, -1, -1, -1, 1, 1]
-            else:
-                continue
-                    
-        else:
-            continue # the matrix element is not needed (we exploit that 3NF is real symmetric)
-            
-        indices = []
-        signs = []
-        for ii, ele_k in  enumerate(ket_perms):
-            for jj, ele_b in enumerate(bra_perms):
-                indices.append(ele_k + ele_b)
-                signs.append(ket_signs[ii] * bra_signs[jj])
-      
-                
-        for i, indx in enumerate(indices):
-            sign = signs[i]
-            [a1, a2, a3, a4, a5, a6] = indx
-            vint.append([a1, a2, a3, a4, a5, a6, val * sign_ket * sign_bra * sign])
-            
-    return w_ppp_pph, w_ppp_phh, w_pph_pph, w_ppp_hhh, w_pph_phh, w_pph_hhh, w_phh_phh, w_phh_hhh, w_hhh_hhh
+    type_map = type_map.at[h_tens].set(0)
+    type_map = type_map.at[p_tens].set(1)
 
-def order_state(ket,lookup_p,lookup_h, i1, i2, i3):
-    """
-    orders tuple into right order, i.e. "p" before "h"
-    this function is used by the function get_3NF
+    local_map = local_map.at[h_tens].set(jnp.arange(len(hole), dtype=jnp.int32))
+    local_map = local_map.at[p_tens].set(jnp.arange(len(part), dtype=jnp.int32))
 
-    :param ket:         ket to be used in finding the right particle hole index
-    :type ket:          (str, str, str)
-    :param lookup_p:    dictionary to lookup the index of particles
-    :type lookup_p:     dict(int, int)
-    :param lookup_h:    dictionary to lookup the index of holes
-    :type lookup_h:     dict(int, int)
-    :param i1:          index of first particle/hole
-    :type i1:           int
-    :param i2:          index of second particle/hole
-    :type i2:           int
-    :param i3:          index of third particle/hole
-    :type i3:           int
-    :return:            the correctly ordered result looking like ket,
-                        the sign of the permutation that achieved this,
-                        and the list of three single-particle indices
-    :rtype:             tuple(str, str, str), float, list[(int, int, int)]
-    """
-    res = ket
-    if ket == ("p","p","p"):
-        sign_ket = 1.0
-        a = lookup_p.get(i1)
-        b = lookup_p.get(i2)
-        c = lookup_p.get(i3)
-    elif ket == ("h","h","h"):
-        sign_ket = 1.0
-        a = lookup_h.get(i1)
-        b = lookup_h.get(i2)
-        c = lookup_h.get(i3)
-    elif ket == ("p","p","h"):
-        sign_ket = 1.0
-        a = lookup_p.get(i1)
-        b = lookup_p.get(i2)
-        c = lookup_h.get(i3)
-    elif ket == ("p","h","p"):
-        sign_ket = -1.0
-        a = lookup_p.get(i1)
-        c = lookup_h.get(i2)
-        b = lookup_p.get(i3)
-        res = ("p","p","h")
-    elif ket == ("h","p","p"):
-        sign_ket = -1.0
-        c = lookup_h.get(i1)
-        b = lookup_p.get(i2)
-        a = lookup_p.get(i3)
-        res = ("p","p","h")
-    elif ket == ("p","h","h"):
-        sign_ket = 1.0
-        a = lookup_p.get(i1)
-        b = lookup_h.get(i2)
-        c = lookup_h.get(i3)
-    elif ket == ("h","p","h"):
-        sign_ket = -1.0
-        b = lookup_h.get(i1)
-        a = lookup_p.get(i2)
-        c = lookup_h.get(i3)
-        res = ("p","h","h")
-    elif ket == ("h","h","p"):
-        sign_ket = -1.0
-        c = lookup_h.get(i1)
-        b = lookup_h.get(i2)
-        a = lookup_p.get(i3)
-        res = ("p","h","h")
-        
-    return res, sign_ket, [a, b, c]
+    types = type_map[indices]  # (N, 6)
+
+    ket_types = types[:, :3]
+    bra_types = types[:, 3:]
+
+    ket_indices = indices[:, :3]
+    bra_indices = indices[:, 3:]
+
+    @jax.jit
+    def vectorize_order(current_types, current_indices):
+        """Reorders indices to (p...p h...h) format and computes sign flips.
+        Rewritten to use jnp.where to avoid dynamic boolean masking."""
+        sums = jnp.sum(current_types, axis=1)
+        new_indices = current_indices
+        signs = jnp.ones(current_indices.shape[0], dtype=jnp.float64)
+
+        # Case: pph (sum=2)
+        is_php = (sums == 2) & (current_types[:, 1] == 0)
+        new_indices = jnp.where(
+            is_php[:, None], current_indices[:, [0, 2, 1]], new_indices
+        )
+        signs = jnp.where(is_php, -1.0, signs)
+
+        is_hpp = (sums == 2) & (current_types[:, 0] == 0)
+        new_indices = jnp.where(
+            is_hpp[:, None], current_indices[:, [1, 2, 0]], new_indices
+        )
+        signs = jnp.where(is_hpp, -1.0, signs)
+
+        # Case: phh (sum=1)
+        is_hph = (sums == 1) & (current_types[:, 1] == 1)
+        new_indices = jnp.where(
+            is_hph[:, None], current_indices[:, [1, 0, 2]], new_indices
+        )
+        signs = jnp.where(is_hph, -1.0, signs)
+
+        is_hhp = (sums == 1) & (current_types[:, 2] == 1)
+        new_indices = jnp.where(
+            is_hhp[:, None], current_indices[:, [2, 0, 1]], new_indices
+        )
+        signs = jnp.where(is_hhp, -1.0, signs)
+
+        return new_indices, signs, sums
+
+    ket_canon, ket_signs, ket_sums = vectorize_order(ket_types, ket_indices)
+    bra_canon, bra_signs, bra_sums = vectorize_order(bra_types, bra_indices)
+
+    bucket_defs = [
+        (3, 2),
+        (3, 1),
+        (2, 2),
+        (3, 0),
+        (2, 1),
+        (2, 0),
+        (1, 1),
+        (1, 0),
+        (0, 0),
+    ]
+
+    perms_lookup = {
+        3: (
+            jnp.array(
+                [[0, 1, 2], [1, 0, 2], [2, 1, 0], [0, 2, 1], [1, 2, 0], [2, 0, 1]]
+            ),
+            jnp.array([1, -1, -1, -1, 1, 1], dtype=jnp.float64),
+        ),
+        0: (
+            jnp.array(
+                [[0, 1, 2], [1, 0, 2], [2, 1, 0], [0, 2, 1], [1, 2, 0], [2, 0, 1]]
+            ),
+            jnp.array([1, -1, -1, -1, 1, 1], dtype=jnp.float64),
+        ),
+        2: (jnp.array([[0, 1, 2], [1, 0, 2]]), jnp.array([1, -1], dtype=jnp.float64)),
+        1: (jnp.array([[0, 1, 2], [0, 2, 1]]), jnp.array([1, -1], dtype=jnp.float64)),
+    }
+
+    results = []
+    for k_s, b_s in bucket_defs:
+        mask = (ket_sums == k_s) & (bra_sums == b_s)
+
+        if not jnp.any(mask):
+            empty_idx = jnp.empty((0, 6), dtype=jnp.int32)
+            empty_val = jnp.empty((0,), dtype=jnp.float64)
+            results.append(ThreeBodyOperator(empty_idx, empty_val, nstat))
+            continue
+
+        base_ket = ket_canon[mask]
+        base_bra = bra_canon[mask]
+        base_vals = values[mask] * ket_signs[mask] * bra_signs[mask]
+
+        kp, ks = perms_lookup[k_s]
+        bp, bs = perms_lookup[b_s]
+
+        final_ket, final_bra, final_vals = expand_permutations_kernel(base_ket, base_bra, base_vals, kp, ks, bp, bs)
+
+        local_ket = local_map[final_ket]
+        local_bra = local_map[final_bra]
+
+        final_indices = jnp.concatenate([local_ket, local_bra], axis=1)
+        results.append(ThreeBodyOperator(final_indices, final_vals, nstat))
+
+    return tuple(results)
 
 
-def get_3NF_Eref(w_hhh_hhh):
-    """
-    returns normal-ordering contributions to the reference energy 
+@jax.jit
+def _eref_kernel(indices, values):
+    """Internal JIT-compiled kernel for Eref"""
+    mask = (
+        (indices[:, 0] == indices[:, 3])
+        & (indices[:, 1] == indices[:, 4])
+        & (indices[:, 2] == indices[:, 5])
+    )
+    # Jnp.where allows JAX to keep a static shape while summing only valid entries
+    return jnp.sum(jnp.where(mask, values, 0.0)) / 6.0
 
-    :param w_hhh_hhh:   nonzero elements of the three body interaction W^{ijk}_{lmn}
-    :type w_hhh_hhh:    list[(int, int, int, int, int, int, float)]
-    :return:            contribution to the reference energy from the normal ordered three nucleon force
-    :rtype:             float
-    """
-    Eref = 0.0
-    for ele in w_hhh_hhh:
-        [m, i, j, n, k, l, val] = ele
-#        if (m, n, i) == (n, k, l):
-        if m == n and i == k and j == l: 
-            Eref += val/6.0
-            
-    return Eref
-    
 
-def get_3NF_fock(hnum, pnum, w_phh_phh, w_phh_hhh, w_hhh_hhh):
-    """
-    gets the normal-ordering contributions of the three-body potential to the Fock matrix
+def get_3NF_Eref(w_hhh_hhh: ThreeBodyOperator) -> float:
+    if len(w_hhh_hhh.values) == 0:
+        return 0.0
+    return float(_eref_kernel(w_hhh_hhh.indices, w_hhh_hhh.values))
 
-    :param hnum:    number of hole states
-    :type hnum:     int
-    :param pnum:    number of particle states
-    :type pnum:     int
-    :param w_phh_phh:   nonzero elements of the three body interaction matrix W^{aij}_{bkl}
-    :type w_phh_phh:    list[(int, int, int, int, int, int, float)]
-    :param w_phh_hhh:   nonzero elements of the three body interaction matrix W^{aij}_{klm}
-    :type w_phh_hhh:    list[(int, int, int, int, int, int, float)]
-    :param w_hhh_hhh:   nonzero elements of the three body interaction matrix W^{ijk}_{lmn}
-    :type w_hhh_hhh:    list[(int, int, int, int, int, int, float)]
-    :return:            contributions to the normal ordered one body matrices
-    :rtype:             numpy array, numpy array, numpy array
-    """
-    f_pp = np.zeros((pnum, pnum))
-    f_ph = np.zeros((pnum, hnum))
-    f_hh = np.zeros((hnum, hnum))
-    
-    for ele in w_phh_phh:
-        [a, i, j, b, k, l, val] = ele
-        if i == k and j == l:
-            f_pp[a,b] += 0.5*val
-            
-    for ele in w_phh_hhh:
-        [a, i, j, m, k, l, val] = ele
-        if i == k and j == l:
-            f_ph[a,m] += 0.5*val
-            
-    for ele in w_hhh_hhh:
-        [n, i, j, m, k, l, val] = ele
-        if i == k and j == l:
-            f_hh[n,m] += 0.5*val
-            
+
+# @partial(jax.jit, static_argnums=(3,))
+def _fock_accumulator(target, indices, values, row_col_map):
+    """Internal JIT-compiled accumulator for 1-body normal ordering"""
+    if values.size == 0:
+        return target
+
+    mask = (indices[:, 1] == indices[:, 4]) & (indices[:, 2] == indices[:, 5])
+
+    row_idx = indices[:, row_col_map[0]]
+    col_idx = indices[:, row_col_map[1]]
+
+    # JAX `.at` automatically handles repeated indices, removing the need for flat strides
+    masked_vals = np.where(mask, 0.5 * values, 0.0)
+    np.add.at(target, (row_idx, col_idx), masked_vals)
+    return target
+    # return target.at[row_idx, col_idx].add(masked_vals)
+
+
+def get_3NF_fock(
+    hnum: int,
+    pnum: int,
+    w_phh_phh: ThreeBodyOperator,
+    w_phh_hhh: ThreeBodyOperator,
+    w_hhh_hhh: ThreeBodyOperator,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+    f_pp = np.zeros((pnum, pnum), dtype=np.float64)
+    f_ph = np.zeros((pnum, hnum), dtype=np.float64)
+    f_hh = np.zeros((hnum, hnum), dtype=np.float64)
+
+    f_pp = _fock_accumulator(f_pp, w_phh_phh.indices, w_phh_phh.values, (0, 3))
+    f_ph = _fock_accumulator(f_ph, w_phh_hhh.indices, w_phh_hhh.values, (0, 3))
+    f_hh = _fock_accumulator(f_hh, w_hhh_hhh.indices, w_hhh_hhh.values, (0, 3))
+
     return f_pp, f_ph, f_hh
 
 
-def get_3NF_tbme(w_pph_pph, w_pph_phh, w_pph_hhh, w_phh_phh, w_phh_hhh, w_hhh_hhh, 
-                 pnum, hnum, sparse_pppp = True, sparse_ppph = True):
-    """
-    Finds the normal-ordering contributions of the three-body potential to the two-body matrix elements
+# @partial(jax.jit, static_argnums=(3,))
+def _dense_tbme_accumulator(target, indices, values, dim_map):
+    """Internal JIT-compiled accumulator for 2-body dense tensor construction"""
+    if values.size == 0:
+        return target
 
-    :param w_pph_pph:   nonzero elements of the three body interaction matrix W^{abi}_{cdj}
-    :type w_pph_pph:    list[(int, int, int, int, int, int, float)]
-    :param w_pph_phh:   nonzero elements of the three body interaction matrix W^{acj}_{bkl}
-    :type w_pph_phh:    list[(int, int, int, int, int, int, float)]
-    :param w_phh_phh:   nonzero elements of the three body interaction matrix W^{aij}_{bkl}
-    :type w_phh_phh:    list[(int, int, int, int, int, int, float)]
-    :param w_phh_hhh:   nonzero elements of the three body interaction matrix W^{aij}_{klm}
-    :type w_phh_hhh:    list[(int, int, int, int, int, int, float)]
-    :param w_hhh_hhh:   nonzero elements of the three body interaction matrix W^{ijk}_{lmn}
-    :type w_hhh_hhh:    list[(int, int, int, int, int, int, float)]
-    :param hnum:    number of hole states
-    :type hnum:     int
-    :param pnum:    number of particle states
-    :type pnum:     int
-    :param sparse_pppp: Optional; whether or not v_pppp should be stored as sparse or not
-    :type sparse_pppp:  bool
-    :param sparse_ppph: Optional; whether or not v_ppph should be stored as sparse or not
-    :type sparse_ppph:  bool
-    :return:            contributions to the normal ordered two body matrices
-    :rtype:             numpy array, numpy array, numpy array, numpy array, numpy array, numpy array
-    """
-    v_phph = np.zeros((pnum, hnum, pnum, hnum))
-    v_pphh = np.zeros((pnum, pnum, hnum, hnum))
-    v_phhh = np.zeros((pnum, hnum, hnum, hnum))
-    v_hhhh = np.zeros((hnum, hnum, hnum, hnum)) 
-    
-    if sparse_pppp:
-        v_pppp = []
-    else:
-        v_pppp = np.zeros((pnum, pnum, pnum, pnum))
-        
-    if sparse_ppph:
-        v_ppph = []
-    else:
-        v_ppph = np.zeros((pnum, pnum, pnum, hnum))
-                
-    for ele in w_pph_pph:
-        [a, b, i, c, d, j, val] = ele
-        if i == j:
-            if sparse_pppp:
-                v_pppp.append([a, b, c, d, val])
-            else:
-                v_pppp[a, b, c, d] += val
-       
-    for ele in w_pph_phh:
-        [a, b, i, c, k, j, val] = ele
-        if i == j:
-            if sparse_pppp:
-                v_ppph.append([a, b, c, k, val])
-            else:
-                v_ppph[a, b, c, k] += val
+    mask = indices[:, 2] == indices[:, 5]
+    masked_vals = np.where(mask, values, 0.0)
 
-    for ele in w_pph_hhh:
-        [a, b, i, m, k, j, val] = ele
-        if i == j:
-            v_pphh[a, b, m, k] += val
-            
-    for ele in w_phh_phh:
-        [a, n, i, b, k, j, val] = ele
-        if i == j:
-            v_phph[a, n, b, k] += val
-            
-    for ele in w_phh_hhh:
-        [a, n, i, l, k, j, val] = ele
-        if i == j:
-            v_phhh[a, n, l, k] += val
-            
-    for ele in w_hhh_hhh:
-        [m, n, i, l, k, j, val] = ele
-        if i == j:
-            v_hhhh[m, n, l, k] += val
-            
+    idx_0 = indices[:, dim_map[0]]
+    idx_1 = indices[:, dim_map[1]]
+    idx_2 = indices[:, dim_map[2]]
+    idx_3 = indices[:, dim_map[3]]
+
+    # 4D scatter add without any stride calculations!
+    np.add.at(target, (idx_0, idx_1, idx_2, idx_3), masked_vals)
+    return target
+    # return target.at[idx_0, idx_1, idx_2, idx_3].add(masked_vals)
+
+
+def get_3NF_tbme(
+    w_pph_pph: ThreeBodyOperator,
+    w_pph_phh: ThreeBodyOperator,
+    w_pph_hhh: ThreeBodyOperator,
+    w_phh_phh: ThreeBodyOperator,
+    w_phh_hhh: ThreeBodyOperator,
+    w_hhh_hhh: ThreeBodyOperator,
+    pnum: int,
+    hnum: int,
+) -> Tuple[Union[TwoBodyOperator, np.ndarray], ...]:
+    nstat = pnum + hnum
+
+    v_pphh = np.zeros((pnum, pnum, hnum, hnum), dtype=np.float64)
+    v_phph = np.zeros((pnum, hnum, pnum, hnum), dtype=np.float64)
+    v_phhh = np.zeros((pnum, hnum, hnum, hnum), dtype=np.float64)
+    v_hhhh = np.zeros((hnum, hnum, hnum, hnum), dtype=np.float64)
+
+    def get_sparse(op: ThreeBodyOperator, dim_map) -> TwoBodyOperator:
+        # We cannot JIT this because boolean masking changes the shape
+        indices = op.indices
+        values = op.values
+        if len(values) == 0:
+            return TwoBodyOperator(
+                jnp.empty((0, 4), dtype=jnp.int32),
+                jnp.empty((0,), dtype=jnp.float64),
+                nstat,
+            )
+
+        mask = indices[:, 2] == indices[:, 5]
+        valid_idx = indices[mask]
+        valid_val = values[mask]
+
+        new_indices = valid_idx[:, list(dim_map)]
+        return TwoBodyOperator(new_indices, valid_val, nstat)
+
+    v_pppp = get_sparse(w_pph_pph, (0, 1, 3, 4))
+
+    v_ppph = get_sparse(w_pph_phh, (0, 1, 3, 4))
+
+    v_pphh = _dense_tbme_accumulator(
+        v_pphh, np.asarray(w_pph_hhh.indices), np.asarray(w_pph_hhh.values), (0, 1, 3, 4)
+    )
+    v_phph = _dense_tbme_accumulator(
+        v_phph, np.asarray(w_phh_phh.indices), np.asarray(w_phh_phh.values), (0, 1, 3, 4)
+    )
+    v_phhh = _dense_tbme_accumulator(
+        v_phhh, np.asarray(w_phh_hhh.indices), np.asarray(w_phh_hhh.values), (0, 1, 3, 4)
+    )
+    v_hhhh = _dense_tbme_accumulator(
+        v_hhhh, np.asarray(w_hhh_hhh.indices), np.asarray(w_hhh_hhh.values), (0, 1, 3, 4)
+    )
+
     return v_pppp, v_ppph, v_pphh, v_phph, v_phhh, v_hhhh
+
+@jax.jit
+def expand_permutations_kernel(
+    base_ket: jax.Array, 
+    base_bra: jax.Array, 
+    base_vals: jax.Array, 
+    kp: jax.Array, 
+    ks: jax.Array, 
+    bp: jax.Array, 
+    bs: jax.Array
+) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    """
+    JIT-compiled expansion of 3-body permutations with type annotations.
+    
+    Args:
+        base_ket: (M, 3) canonical ket indices
+        base_bra: (M, 3) canonical bra indices
+        base_vals: (M,) canonical values
+        kp, bp: Permutation index arrays (e.g., shape (6, 3))
+        ks, bs: Permutation sign arrays (e.g., shape (6,))
+        
+    Returns:
+        A tuple of (final_ket, final_bra, final_vals)
+    """
+    n_perms_k: int = ks.shape[0]
+    n_perms_b: int = bs.shape[0]
+    M: int = base_ket.shape[0]
+
+    expanded_ket: jax.Array = base_ket[:, kp]  # (M, n_perms_k, 3)
+    expanded_bra: jax.Array = base_bra[:, bp]  # (M, n_perms_b, 3)
+
+    # (n_perms_k, n_perms_b)
+    comb_signs: jax.Array = ks[:, None] * bs[None, :]
+
+    # (M, n_perms_k, n_perms_b)
+    expanded_vals: jax.Array = base_vals[:, None, None] * comb_signs[None, :, :]
+
+    # (NNZ, 3)
+    final_ket: jax.Array = jnp.broadcast_to(
+        expanded_ket[:, :, None, :], (M, n_perms_k, n_perms_b, 3)
+    ).reshape(-1, 3)
+    
+    final_bra: jax.Array = jnp.broadcast_to(
+        expanded_bra[:, None, :, :], (M, n_perms_k, n_perms_b, 3)
+    ).reshape(-1, 3)
+    
+    final_vals: jax.Array = expanded_vals.reshape(-1)
+
+    return final_ket, final_bra, final_vals

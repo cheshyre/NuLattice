@@ -1,9 +1,10 @@
 import sys, pathlib, os
 sys.path.append(str(pathlib.Path(os.path.abspath("")) / ".."))
-import numpy as np
+# import numpy as np
 import NuLattice.lattice as lat
 import NuLattice.references as ref
-import NuLattice.CCM.coupled_cluster as ccm
+import NuLattice.CCM as ccm
+from NuLattice.utils._jax_types import OneBodyOperator, TwoBodyOperator, ThreeBodyOperator
 
 # Initialize lattice
 thisL = 4   #L*L*L lattice
@@ -37,10 +38,17 @@ print("number of matrix elements from three-body contacts", len(my3body))
 ref_state = ref.ref_16O_gs
 
 #Choose whether or not to have v_pppp and v_ppph sparse or not
-sparse = True
+# NOTE(vivek): only sparse now
+# sparse = True
 # make normal-ordered Hamiltonian
 refEn, fock_mats, two_body_int = ccm.get_norm_ordered_ham(
-    thisL, ref_state, myTkin, mycontact, my3body, sparse=sparse, NO2B=True)
+    thisL,
+    ref_state,
+    OneBodyOperator.from_list(myTkin, len(my_basis)),
+    TwoBodyOperator.from_list(mycontact, len(my_basis)),
+    ThreeBodyOperator.from_list(my3body, len(my_basis)),
+    NO2B=True
+)
 
 
 print("energy of reference:", refEn*phys_unit)
@@ -53,7 +61,7 @@ verbose = True
 #solving the coupled cluster equations until we get to a relative error of 1e-8
 corrEn, t1, t2 = ccm.ccsd_solver(fock_mats, two_body_int, eps = 1.e-8, maxSteps = 100, 
                                  max_diis = 10, delta = delta, mixing = 0.5,
-                                 sparse=sparse, verbose=verbose, ccs=False)
+                                 verbose=verbose, ccs=False)
 
 #converting the energy from lattice units to MeV
 gsEn = (corrEn + refEn) * phys_unit
