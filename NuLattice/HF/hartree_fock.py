@@ -256,3 +256,53 @@ def guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.
     # print(jnp.diag(vals_final))
 
     return occupied_orbitals
+
+
+def contract_3nf(op3, density):
+    w3_idx = jnp.asarray(op3.indices)
+    w3_val = jnp.asarray(op3.values)
+
+    return contract_3nf_fused(w3_idx, w3_val, density)
+
+
+def contract_2nf(op2, density):
+    v2_idx = jnp.asarray(op2.indices)
+    v2_val = jnp.asarray(op2.values)
+
+    return contract_2nf_fused(v2_idx, v2_val, density)
+
+
+def HF_energy(op1, op2, op3, density):
+    f_1b = jnp.zeros_like(density)
+    f_1b += jnp.asarray(op1.to_dense())
+    f_1b += 0.5 * contract_2nf(op2, density)
+    f_1b += (1.0 / 6.0) * contract_3nf(op3, density)
+
+    energy = jnp.einsum("ij,ji", f_1b, density)
+
+    if jnp.abs(jnp.imag(energy)) > 1e-4:
+        print(f"Warning: Computed energy is complex: {energy}")
+        print("Something is probably wrong!")
+
+    return jnp.real(energy)
+
+
+def HF_iter(op1, op2, op3, density, mix=0.5):
+    npart = round(jnp.real(jnp.trace(density)))
+
+    energy = HF_energy(op1, op2, op3, density)
+    fock = make_HF_ham(op1, op2, op3, density)
+    _, orbitals = jnp.linalg.eigh(fock)
+    occupied_orbitals = orbitals[:, 0:npart]
+    new_density = occupied_orbitals @ jnp.conjugate(jnp.transpose(occupied_orbitals))
+
+    mixed_density = mix * new_density + (1.0 - mix) * density
+
+    return energy, mixed_density, orbitals
+
+
+def make_HF_ham(op1, op2, op3, density):
+    fock = jnp.asarray(op1.to_dense().astype(density.dtype))
+    fock += contract_2nf(op2, density)
+    fock += 0.5 * contract_3nf(op3, density)
+    return fock
