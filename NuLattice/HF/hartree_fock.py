@@ -196,7 +196,7 @@ def solve_HF(
         prev_energy = energy
 
     if keep_all_orbitals:
-        gamma, omega = build_mean_fields(_dens, v2_idx, v2_val)
+        gamma, omega = build_mean_fields(_dens, v2_idx, v2_val, w3_idx, w3_val)
         fock = build_fock(h1_dense, gamma, omega)
         _, orbs = jnp.linalg.eigh(fock)
     else:
