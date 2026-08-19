@@ -46,7 +46,7 @@ eps=1.e-8
 mix = 0.7
 max_iter=100
 verbose = True
-erg, trafo, conv = hf.solve_HF(myTkin, mycontact, my3body, dens,
+erg, trafo, conv = hf.solve_HF_new(myTkin, mycontact, my3body, dens,
                                mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
 if conv:

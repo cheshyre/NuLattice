@@ -53,7 +53,7 @@ if __name__ == '__main__':
     mix = 0.7
     max_iter=100
     verbose = True
-    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
+    erg, trafo, conv = hf.solve_HF_new(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
     if conv:

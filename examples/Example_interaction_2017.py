@@ -8,7 +8,7 @@ import NuLattice.HF.hartree_fock as hf
 import NuLattice.references as ref
 import NuLattice.operators.jax_adapters as jax_help
 if __name__ == '__main__':
-    thisL = 4
+    thisL = 3
     a = 1.0 / 100.0
     my_basis = lat.get_sp_basis(thisL)
     lattice = lat.get_lattice(thisL)
@@ -36,15 +36,15 @@ if __name__ == '__main__':
     # Density must be defined as complex because Hamiltonian is complex Hermitian
     dens = hf.init_density(len(my_basis),hole,dtype=complex)
 
-    eps=1.e-8
+    eps=1.e-3
     mix = 0.7
     max_iter=500
     verbose = True
     myTkin = jax_help.one_body_from_list(myTkin, len(my_basis))
     my_VNN = jax_help.two_body_from_sparse(v_0 + v_OPE, len(my_basis))
     my_V3N = jax_help.empty_three_body(len(my_basis))
-    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
-                                mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
+    erg, trafo, conv = hf.solve_HF_new(myTkin, my_VNN, my_V3N, dens,
+                                mix=mix, eps=eps, max_iter=max_iter, verbose=verbose, diagonalizer="dense")
 
     if conv:
         print("HF energy (MeV) = ", erg)

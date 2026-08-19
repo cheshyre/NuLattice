@@ -61,7 +61,7 @@ if __name__ == '__main__':
     verbose = True
     myTkin = jax_help.one_body_from_list(myTkin, len(my_basis))
     my_V3N = jax_help.empty_three_body(len(my_basis))
-    erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
+    erg, trafo, conv = hf.solve_HF_new(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
     if conv:

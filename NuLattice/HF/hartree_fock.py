@@ -82,7 +82,7 @@ def build_fock(
         return _make_hermitian(h1 + fock_2b)
     return _make_hermitian(h1 + fock_2b + 0.5 * omega)
 
-def hf_energy(
+def hf_energy_new(
     dens: Array,
     h1: Array,
     gamma: Array,
@@ -99,13 +99,13 @@ def hf_energy(
 
 
 @partial(jax.jit, static_argnames=("npart", "diagonalizer", ))
-def iterate_hf_equations(
+def iterate_hf_equations_new(
     dens, h1, v2_idx, v2_val, w3_idx, w3_val, npart, mix, prev_vecs,
     diagonalizer, davidson_max_iter
 ):
     fock_2b, fock_3b = build_2b_and_3b_fock_matrices(dens, v2_idx, v2_val, w3_idx, w3_val)
     fock = build_fock(h1, fock_2b, fock_3b)
-    energy = hf_energy(dens, h1, fock_2b, fock_3b)
+    energy = hf_energy_new(dens, h1, fock_2b, fock_3b)
 
     _, orbitals = (
         jnp.linalg.eigh(fock)
@@ -150,7 +150,7 @@ def prepare_inputs(op1, op2, op3, dens: Array, sm: ShardingManager, dtype=jnp.fl
 
     return h1, v2_idx, v2_val, w3_idx, w3_val, dens
 
-def solve_HF(
+def solve_HF_new(
     op1,
     op2,
     op3,
@@ -179,7 +179,7 @@ def solve_HF(
     occupied_orbitals = occupied_orbitals_from_diagonal_density(_dens, npart)
 
     for i in range(max_iter):
-        occupied_orbitals, energy, _dens, diff_dens = iterate_hf_equations(
+        occupied_orbitals, energy, _dens, diff_dens = iterate_hf_equations_new(
             _dens, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occupied_orbitals,
             diagonalizer, davidson_max_iter,
         )

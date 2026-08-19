@@ -49,7 +49,7 @@ mix = 0.8
 max_iter=100
 verbose = True
 h3b=[] #we have no 3-body force
-erg, trafo, conv = hf.solve_HF(h1b, h2b, h3b, dens,
+erg, trafo, conv = hf.solve_HF_new(h1b, h2b, h3b, dens,
                                mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
 
 if conv:
