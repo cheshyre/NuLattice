@@ -73,7 +73,7 @@ def build_2b_and_3b_fock_matrices(
     return fock_2b, fock_3b
 
 
-def build_fock(
+def build_full_fock_matrix(
     h1: Array,
     fock_2b: Array,
     fock_3b: Array = None,
@@ -82,7 +82,7 @@ def build_fock(
         return _make_hermitian(h1 + fock_2b)
     return _make_hermitian(h1 + fock_2b + 0.5 * fock_3b)
 
-def hf_energy(
+def compute_hf_energy_from_fock_matrices(
     dens: Array,
     h1: Array,
     fock_2b: Array,
@@ -104,8 +104,8 @@ def iterate_hf_equations(
     diagonalizer, davidson_max_iter
 ):
     fock_2b, fock_3b = build_2b_and_3b_fock_matrices(dens, v2_idx, v2_val, w3_idx, w3_val)
-    fock = build_fock(h1, fock_2b, fock_3b)
-    energy = hf_energy(dens, h1, fock_2b, fock_3b)
+    fock = build_full_fock_matrix(h1, fock_2b, fock_3b)
+    energy = compute_hf_energy_from_fock_matrices(dens, h1, fock_2b, fock_3b)
 
     _, orbitals = (
         jnp.linalg.eigh(fock)
@@ -197,7 +197,7 @@ def solve_HF(
 
     if keep_all_orbitals:
         fock_2b, fock_3b = build_2b_and_3b_fock_matrices(_dens, v2_idx, v2_val, w3_idx, w3_val)
-        fock = build_fock(h1_dense, fock_2b, fock_3b)
+        fock = build_full_fock_matrix(h1_dense, fock_2b, fock_3b)
         _, orbs = jnp.linalg.eigh(fock)
     else:
         orbs = occupied_orbitals
