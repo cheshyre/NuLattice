@@ -176,7 +176,7 @@ def solve_HF(
     converged = False
     npart = int(jnp.real(jnp.trace(_dens)).round())
 
-    occupied_orbitals = occupied_orbitals_from_diagonal_density(_dens, npart)
+    occupied_orbitals = guess_occupied_orbitals_from_density(_dens, npart)
 
     for i in range(max_iter):
         occupied_orbitals, energy, _dens, diff_dens = iterate_hf_equations(
@@ -205,6 +205,54 @@ def solve_HF(
 
     return energy, orbs, converged
 
-def occupied_orbitals_from_diagonal_density(dens: jax.Array, npart: int) -> jax.Array:
-    indices = jnp.argsort(jnp.real(jnp.diag(dens)))[-npart:]
-    return dens[:, indices]
+def guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.Array:
+    # We generate a random matrix P that serve as trial basis to get the eigenvectors of dens
+    # P has the size npart + CONDITION_NUMBER, where CONDITION_NUMBER ensures numerical stability
+    dim = len(density)
+    key = jax.random.key(42)
+    CONDITION_NUMBER = 5
+    CONDITION_NUMBER = min(CONDITION_NUMBER, dim - npart) # Make sure we stay in bounds
+    P = jax.random.normal(key, shape=(dim, npart + CONDITION_NUMBER), dtype=density.dtype)
+
+    # We project out the eigenbasis of the density from P
+    # This works because the density is a projector,
+    # specifically a projector onto the space of occupied states
+    X = density @ P
+
+    # We take the resulting vectors and perform a QR decomposition
+    # to get the orthogonal vectors Q
+    Q, _ = jnp.linalg.qr(X)
+
+    # # This code will shuffle the vectors in Q
+    # # This can be used to test that the filter below is working
+    # perm = jax.random.permutation(key, npart + CONDITION_NUMBER)
+    # Q = Q[:, perm]
+
+    # We compute the eigenvalues of the density matrix from Q
+    # They are on the diagonal of the resulting matrix
+    eigenvalues = jnp.diag(jnp.conjugate(jnp.transpose(Q)) @ density @ Q)
+    # print(eigenvalues)
+
+    # We loop over the eigenvalues once and find the ones that are nonzero
+    indices = jnp.zeros(shape=(npart), dtype=int)
+    count = 0
+    for i in range(npart + CONDITION_NUMBER):
+        if eigenvalues[i] > 0.75:
+            if count >= npart:
+                print(f"Warning: Found more than npart={npart} eigenvectors of density matrix with nonzero eigenvalues.")
+                print("Something might be wrong!")
+                break
+            indices = indices.at[count].set(i)
+            count += 1
+    if count != npart:
+        print(f"Warning: Found only {count} (which is less than npart={npart}) eigenvectors of density matrix with nonzero eigenvalues.")
+        print("Something might be wrong!")
+
+    # We get the occupied orbitals from the eigenvalues that are nonzero
+    occupied_orbitals = jnp.asarray(Q[:, indices])
+
+    # # This code can be used to double-check that we actually get the eigenvalues we think
+    # vals_final = jnp.conjugate(jnp.transpose(occupied_orbitals)) @ density @ occupied_orbitals
+    # print(jnp.diag(vals_final))
+
+    return occupied_orbitals
