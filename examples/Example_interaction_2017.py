@@ -38,13 +38,15 @@ if __name__ == '__main__':
 
     eps=1.e-3
     mix = 0.7
-    max_iter=500
+    max_iter=10
     verbose = True
     myTkin = jax_help.one_body_from_list(myTkin, len(my_basis))
     my_VNN = jax_help.two_body_from_sparse(v_0 + v_OPE, len(my_basis))
     my_V3N = jax_help.empty_three_body(len(my_basis))
     erg, trafo, conv = hf.solve_HF(myTkin, my_VNN, my_V3N, dens,
                                 mix=mix, eps=eps, max_iter=max_iter, verbose=verbose)
+    erg, trafo, conv = hf.solve_HF_new(myTkin, my_VNN, my_V3N, dens,
+                                mix=mix, eps=eps, max_iter=max_iter, verbose=verbose, diagonalizer="dense")
 
     if conv:
         print("HF energy (MeV) = ", erg)
