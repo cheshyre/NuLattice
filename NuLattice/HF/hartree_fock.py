@@ -14,7 +14,7 @@ EigenSolver = Literal["dense", "davidson"]
 def _adjoint(x):
     return jnp.swapaxes(jnp.conj(x), -1, -2)
 
-def hermitianize(x):
+def _make_hermitian(x):
     return 0.5 * (x + _adjoint(x))
 
 def init_density(nstat: int, hole: Tuple[int], dtype=None):
@@ -59,28 +59,28 @@ def contract_3nf_fused(indices: Array, values: Array, dens: Array) -> Array:
     res = res.at[c, f].add(v2 * (dens[a, d] * dens[b, e] - dens[b, d] * dens[a, e]))
     return res
 
-def build_mean_fields(
+def build_2b_and_3b_fock_matrices(
     dens: Array,
     v2_idx: Array,
     v2_val: Array,
     w3_idx: Array = None,
     w3_val: Array = None,
 ) -> tuple[Array, Array]:
-    gamma = hermitianize(contract_2nf_fused(v2_idx, v2_val, dens))
-    omega = None
+    fock_2b = _make_hermitian(contract_2nf_fused(v2_idx, v2_val, dens))
+    fock_3b = None
     if (w3_idx is not None) and (w3_val is not None):
-        omega = hermitianize(contract_3nf_fused(w3_idx, w3_val, dens))
-    return gamma, omega
+        fock_3b = _make_hermitian(contract_3nf_fused(w3_idx, w3_val, dens))
+    return fock_2b, fock_3b
 
 
 def build_fock(
     h1: Array,
-    gamma: Array,
+    fock_2b: Array,
     omega: Array = None,
 ) -> Array:
     if omega is None:
-        return hermitianize(h1 + gamma)
-    return hermitianize(h1 + gamma + 0.5 * omega)
+        return _make_hermitian(h1 + fock_2b)
+    return _make_hermitian(h1 + fock_2b + 0.5 * omega)
 
 def hf_energy(
     dens: Array,
@@ -99,27 +99,27 @@ def hf_energy(
 
 
 @partial(jax.jit, static_argnames=("npart", "diagonalizer", ))
-def _scf_step(
+def iterate_hf_equations(
     dens, h1, v2_idx, v2_val, w3_idx, w3_val, npart, mix, prev_vecs,
     diagonalizer, davidson_max_iter
 ):
-    gamma, omega = build_mean_fields(dens, v2_idx, v2_val, w3_idx, w3_val)
-    fock = build_fock(h1, gamma, omega)
-    energy = hf_energy(dens, h1, gamma, omega)
+    fock_2b, fock_3b = build_2b_and_3b_fock_matrices(dens, v2_idx, v2_val, w3_idx, w3_val)
+    fock = build_fock(h1, fock_2b, fock_3b)
+    energy = hf_energy(dens, h1, fock_2b, fock_3b)
 
     _, orbitals = (
         jnp.linalg.eigh(fock)
         if diagonalizer == "dense"
         else davidson_eigh(fock, npart, prev_vecs, davidson_max_iter)
     )
-    occ = orbitals[:, :npart]
+    occupied_orbitals = orbitals[:, :npart]
 
-    new_density = occ @ _adjoint(occ)
+    new_density = occupied_orbitals @ _adjoint(occupied_orbitals)
 
     residual_density = jnp.sum(jnp.abs(new_density - dens))
     mixed_density = (1.0 - mix) * dens + mix * new_density
 
-    return occ, energy, mixed_density, residual_density
+    return occupied_orbitals, energy, mixed_density, residual_density
 
 def prepare_inputs(op1, op2, op3, dens: Array, sm: ShardingManager, dtype=jnp.float64):
     has_three_body = op3 is not None and len(op3) > 0
@@ -176,11 +176,11 @@ def solve_HF(
     converged = False
     npart = int(jnp.real(jnp.trace(_dens)).round())
 
-    occ = occupied_orbitals_from_diagonal_density(_dens, npart)
+    occupied_orbitals = occupied_orbitals_from_diagonal_density(_dens, npart)
 
     for i in range(max_iter):
-        occ, energy, _dens, diff_dens = _scf_step(
-            _dens, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occ,
+        occupied_orbitals, energy, _dens, diff_dens = iterate_hf_equations(
+            _dens, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occupied_orbitals,
             diagonalizer, davidson_max_iter,
         )
 
@@ -196,11 +196,11 @@ def solve_HF(
         prev_energy = energy
 
     if keep_all_orbitals:
-        gamma, omega = build_mean_fields(_dens, v2_idx, v2_val, w3_idx, w3_val)
-        fock = build_fock(h1_dense, gamma, omega)
+        fock_2b, fock_3b = build_2b_and_3b_fock_matrices(_dens, v2_idx, v2_val, w3_idx, w3_val)
+        fock = build_fock(h1_dense, fock_2b, fock_3b)
         _, orbs = jnp.linalg.eigh(fock)
     else:
-        orbs = occ
+        orbs = occupied_orbitals
 
 
     return energy, orbs, converged

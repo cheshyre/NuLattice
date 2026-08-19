@@ -11,15 +11,11 @@ SHIFT_REGULARIZATION = 1e-12
 def _adjoint(x: Array) -> Array:
     return jnp.swapaxes(jnp.conj(x), -1, -2)
 
-def hermitianize(x: Array) -> Array:
+def _make_hermitian(x: Array) -> Array:
     return 0.5 * (x + _adjoint(x))
 
-def _occupied_orbitals(fock: Array, npart, guess: Array, max_iter: float) -> tuple[Array, Array]:
-    orbital_energies, orbitals = davidson_eigh(fock, npart, guess, max_iter)
-    return orbital_energies[:npart], orbitals[:, :npart]
-
 def density_from_orbitals(orbitals: Array) -> Array:
-    return hermitianize(orbitals @ _adjoint(orbitals))
+    return _make_hermitian(orbitals @ _adjoint(orbitals))
 
 def _cholesky_qr(x: Array) -> Array:
     # Compute the small overlap matrix (2k x 2k).
