@@ -76,25 +76,25 @@ def build_2b_and_3b_fock_matrices(
 def build_fock(
     h1: Array,
     fock_2b: Array,
-    omega: Array = None,
+    fock_3b: Array = None,
 ) -> Array:
-    if omega is None:
+    if fock_3b is None:
         return _make_hermitian(h1 + fock_2b)
-    return _make_hermitian(h1 + fock_2b + 0.5 * omega)
+    return _make_hermitian(h1 + fock_2b + 0.5 * fock_3b)
 
 def hf_energy(
     dens: Array,
     h1: Array,
-    gamma: Array,
-    omega: Array = None,
+    fock_2b: Array,
+    fock_3b: Array = None,
 ) -> Array:
 
     e_h1 = jnp.einsum("ij,ji->", h1, dens)
-    e_gamma = jnp.einsum("ij,ji->", gamma, dens)
-    e_omega = jnp.asarray(0, dtype=jnp.real(dens[0]).dtype)
-    if omega is not None:
-        e_omega = jnp.einsum("ij,ji->", omega, dens)
-    return jnp.real(e_h1 + 0.5 * e_gamma + (1.0 / 6.0) * e_omega)
+    e_2b = jnp.einsum("ij,ji->", fock_2b, dens)
+    e_3b = jnp.asarray(0, dtype=jnp.real(dens[0]).dtype)
+    if fock_3b is not None:
+        e_3b = jnp.einsum("ij,ji->", fock_3b, dens)
+    return jnp.real(e_h1 + 0.5 * e_2b + (1.0 / 6.0) * e_3b)
 
 
 
