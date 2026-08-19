@@ -116,8 +116,8 @@ def iterate_hf_equations_new(
 
     new_density = occupied_orbitals @ _adjoint(occupied_orbitals)
 
-    residual_density = jnp.sum(jnp.abs(new_density - dens))
     mixed_density = (1.0 - mix) * dens + mix * new_density
+    residual_density = jnp.sum(jnp.abs(mixed_density - dens))
 
     return occupied_orbitals, energy, mixed_density, residual_density
 
