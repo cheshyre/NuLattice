@@ -38,28 +38,26 @@ class _OperatorBase:
             out_list.append(row)
         return out_list
 
-    def to_bcoo(self, mesh=None):
+    def to_bcoo(self, sm: "ShardingManager | None" = None):
         """Converts operator to a JAX BCOO sparse array, optionally sharded."""
         rank = self._get_expected_rank()
         shape = (self.nstat,) * rank
 
-        # If a mesh is provided, shard the NNZ dimension
-        if mesh:
-            sharding = NamedSharding(mesh, P("data"))
-            indices = jax.device_put(self.indices, sharding)
-            data = jax.device_put(self.values, sharding)
+        # If a sharding manager is provided, shard the NNZ dimension
+        if sm is not None:
+            indices = sm.prepare(self.indices)
+            data = sm.prepare(self.values)
             return BCOO((data, indices), shape=shape)
 
         return BCOO((self.values, self.indices), shape=shape)
 
-    def to_dense(self, mesh=None):
+    def to_dense(self, sm: "ShardingManager | None" = None):
         rank = self.indices.shape[1]
         shape = (self.nstat,) * rank
         mat = jnp.zeros(shape, dtype=self.values.dtype)
         mat = mat.at[tuple(self.indices[:, i] for i in range(rank))].add(self.values)
-        if mesh:
-            sharding = NamedSharding(mesh, P("data", *((None,) * (rank - 1))))
-            return jax.device_put(mat, sharding)
+        if sm is not None:
+            return sm.prepare(mat)
         return mat
 
     @classmethod
@@ -176,21 +174,18 @@ class ShardingManager:
         self.num_gpus = num_gpus
         self.mesh = jax.make_mesh(axis_shapes=(num_nodes, num_gpus), axis_names=("nodes", "gpus"))
 
-    def prepare(self, arr, rank: int | None = None, spec: NamedSharding = None):
-        r = rank if rank is not None else arr.ndim 
+    def prepare(self, arr, rank: int | None = None, spec: P | None = None):
+        r = rank if rank is not None else arr.ndim
 
-        if spec is not None:
-            spec = spec
-        else:
-            if r == 0: 
+        if spec is None:
+            if r == 0:
                 spec = P() # alternatively can be used for replication
             elif r == 1:
-                spec = P(('nodes', 'gpus')) # 1d array should be split across everything
+                spec = P(("nodes", "gpus")) # 1d array should be split across everything
+            elif self.num_nodes == 1 or self.num_gpus == 1:
+                spec = P(("nodes", "gpus"), *([None] * (r - 1)))
             else:
-                if self.num_nodes == 1 or self.num_gpus == 1:
-                    spec = P(("nodes", "gpus"), *([None] * (r - 1)))
-                else:
-                    spec = P("nodes", "gpus", *([None] * (r - 2)))
+                spec = P("nodes", "gpus", *([None] * (r - 2)))
 
         sharding = NamedSharding(self.mesh, spec)
 
