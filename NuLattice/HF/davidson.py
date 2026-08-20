@@ -1,3 +1,12 @@
+"""
+Davidson diagonalization for the lattice Hartree-Fock problem, implemented in JAX
+"""
+__authors__   =  "Vivek Booshan"
+__credits__   =  ["Vivek Booshan"]
+__copyright__ = "(c) Vivek Booshan"
+__license__   = "BSD-3-Clause"
+__date__      = "2026"
+
 from functools import partial
 
 import jax
@@ -13,15 +22,26 @@ SHIFT_REGULARIZATION = 1e-12
 @partial(jax.jit, static_argnames=("npart",))
 def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     """
-    Finds the lowest `npart` eigenvalues/eigenvectors of a matrix H.
+    finds the lowest npart eigenvalues and eigenvectors of the hermitian matrix H
 
-    Args:
-        H: Matrix of shape (nstat, nstat)
-        npart: Number of occupied states (lowest roots needed)
-        guess_vecs: Initial guess vectors of shape (nstat, npart) from previous solution
-        max_iter: Number of subspace expansion steps (try 3-5 for warm starts)
+    The subspace is kept at the fixed size 2*npart so that the routine can be
+    jit-compiled: each iteration replaces the subspace by the current Ritz
+    vectors together with their preconditioned residuals. The loop runs for a
+    fixed number of steps rather than to a convergence criterion, which is
+    cheap when guess_vecs comes from the previous Hartree-Fock iteration.
 
     Frankensteined from https://joshuagoings.com/2013/08/23/davidsons-method/
+
+    :param H:          hermitian matrix to be diagonalized
+    :type H:           jax.Array((nstat,nstat), dtype=float or complex)
+    :param npart:      number of occupied states, i.e., number of lowest roots needed
+    :type npart:       int
+    :param guess_vecs: initial guess vectors, e.g., the occupied orbitals of the previous solution
+    :type guess_vecs:  jax.Array((nstat,npart), dtype=float or complex)
+    :param max_iter:   number of subspace expansion steps (try 3-5 for warm starts)
+    :type max_iter:    int
+    :return:           the npart lowest eigenvalues and the corresponding eigenvectors
+    :rtype:            jax.Array((npart,), dtype=float), jax.Array((nstat,npart), dtype=float or complex)
     """
     nstat = H.shape[0]
     D = jnp.diag(H) # Extract diagonal for the preconditioner
@@ -74,10 +94,30 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
 
 
 def _adjoint(x: Array) -> Array:
+    """
+    takes the hermitian conjugate of a matrix, i.e., transposes the last two axes and conjugates
+
+    :param x: matrix (or stack of matrices) to be conjugated
+    :type x:  jax.Array((...,:,:), dtype=float or complex)
+    :return:  hermitian conjugate of x
+    :rtype:   jax.Array((...,:,:), dtype=float or complex)
+    """
     return jnp.swapaxes(jnp.conj(x), -1, -2)
 
 
 def _cholesky_qr(x: Array) -> Array:
+    """
+    orthonormalizes the columns of x via a Cholesky decomposition of the overlap matrix
+
+    This is a QR decomposition that only needs the small (ncol x ncol) overlap
+    matrix and is therefore cheap and easy to compile, but it loses accuracy
+    for ill-conditioned x; see _cqr2 for the remedy.
+
+    :param x: matrix whose columns are to be orthonormalized
+    :type x:  jax.Array((nstat,ncol), dtype=float or complex)
+    :return:  matrix with orthonormal columns spanning the same space as x
+    :rtype:   jax.Array((nstat,ncol), dtype=float or complex)
+    """
     # Compute the small overlap matrix (2k x 2k).
     S = _adjoint(x) @ x
     S += SHIFT_REGULARIZATION * jnp.eye(S.shape[0], dtype=S.dtype)
@@ -87,10 +127,33 @@ def _cholesky_qr(x: Array) -> Array:
 
 
 def _cqr2(V: Array) -> Array:
+    """
+    orthonormalizes the columns of V by applying the Cholesky QR twice
+
+    The second pass restores orthogonality that is lost in the first pass when
+    the overlap matrix is ill-conditioned ("twice is enough").
+
+    :param V: matrix whose columns are to be orthonormalized
+    :type V:  jax.Array((nstat,ncol), dtype=float or complex)
+    :return:  matrix with orthonormal columns spanning the same space as V
+    :rtype:   jax.Array((nstat,ncol), dtype=float or complex)
+    """
     return _cholesky_qr(_cholesky_qr(V))
 
 
 def _regularize_denominator(denom: Array, shift: float) -> Array:
-    """Bound small Davidson denominators without reversing their sign."""
+    """
+    Bound small Davidson denominators without reversing their sign.
+
+    Entries whose magnitude falls below shift are replaced by +/-shift, keeping
+    the original sign, so that the preconditioner never divides by zero.
+
+    :param denom: denominators D_p - E_i of the Davidson preconditioner
+    :type denom:  jax.Array((nstat,npart), dtype=float)
+    :param shift: smallest magnitude a denominator is allowed to take
+    :type shift:  float
+    :return:      denominators with all magnitudes at least shift
+    :rtype:       jax.Array((nstat,npart), dtype=float)
+    """
     signed_shift = jnp.where(denom >= 0.0, shift, -shift)
     return jnp.where(jnp.abs(denom) < shift, signed_shift, denom)
