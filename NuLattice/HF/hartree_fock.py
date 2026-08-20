@@ -46,7 +46,12 @@ def init_density(number_of_states: int, hole_indices: List[int], dtype=None) -> 
     return density
 
 
-def HF_energy(op1: Optional[OneBodyOperator], op2: Optional[ThreeBodyOperator], op3: Optional[ThreeBodyOperator], density: Array):
+def HF_energy(
+    op1: Optional[OneBodyOperator],
+    op2: Optional[TwoBodyOperator],
+    op3: Optional[ThreeBodyOperator],
+    density: Array,
+):
     """
     Computes the Hartree-Fock energy for a given density and Hamiltonian consisting
     of one-body term op1, two-body term op2, and three-body term op3
@@ -54,12 +59,15 @@ def HF_energy(op1: Optional[OneBodyOperator], op2: Optional[ThreeBodyOperator], 
     Warns if the expectation value acquires a sizeable imaginary part, which
     signals an inconsistent density matrix or Hamiltonian.
 
+    Any operator given as None is replaced by an empty operator of the
+    appropriate rank, i.e., it does not contribute to the energy.
+
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
-    :type op1:      operator with to_dense()
+    :type op1:      OneBodyOperator or None
     :param op2:     sparse two-body operator with attributes indices and values
-    :type op2:      operator with indices (:,4) and values (:,)
+    :type op2:      TwoBodyOperator or None
     :param op3:     sparse three-body operator with attributes indices and values
-    :type op3:      operator with indices (:,6) and values (:,)
+    :type op3:      ThreeBodyOperator or None
     :param density: density matrix (same shape as the dense form of op1)
     :type density:  jax.Array((:,:), dtype=float or complex)
     :return:        Hartree-Fock energy
@@ -83,7 +91,11 @@ def HF_energy(op1: Optional[OneBodyOperator], op2: Optional[ThreeBodyOperator], 
 
 
 def evaluate_slater_determinant_expectation_value(
-    op1, op2, op3, density, force_real=False
+    op1: Optional[OneBodyOperator],
+    op2: Optional[TwoBodyOperator],
+    op3: Optional[ThreeBodyOperator],
+    density: Array,
+    force_real: bool = False,
 ):
     """
     evaluates the expectation value of the Hamiltonian in the Slater determinant
@@ -93,12 +105,15 @@ def evaluate_slater_determinant_expectation_value(
     1/6, respectively, so that the trace against the density gives the energy
     and not the Hartree-Fock Hamiltonian (see make_HF_ham for the latter).
 
+    Any operator given as None is replaced by an empty operator of the
+    appropriate rank, i.e., it does not contribute to the expectation value.
+
     :param op1:        one-body operator, convertible to a dense matrix via op1.to_dense()
-    :type op1:         operator with to_dense()
+    :type op1:         OneBodyOperator or None
     :param op2:        sparse two-body operator with attributes indices and values
-    :type op2:         operator with indices (:,4) and values (:,)
+    :type op2:         TwoBodyOperator or None
     :param op3:        sparse three-body operator with attributes indices and values
-    :type op3:         operator with indices (:,6) and values (:,)
+    :type op3:         ThreeBodyOperator or None
     :param density:    density matrix (same shape as the dense form of op1)
     :type density:     jax.Array((:,:), dtype=float or complex)
     :param force_real: if True, the imaginary part of the result is discarded
@@ -106,6 +121,13 @@ def evaluate_slater_determinant_expectation_value(
     :return:           expectation value of the Hamiltonian
     :rtype:            jax.Array((), dtype=float or complex)
     """
+    if op1 is None:
+        op1 = OneBodyOperator.empty(len(density))
+    if op2 is None:
+        op2 = TwoBodyOperator.empty(len(density))
+    if op3 is None:
+        op3 = ThreeBodyOperator.empty(len(density))
+
     f_1b = jnp.zeros_like(density)
     f_1b += jnp.asarray(op1.to_dense())
     f_1b += 0.5 * _contract_2nf(op2, density)
@@ -118,22 +140,37 @@ def evaluate_slater_determinant_expectation_value(
     return exp_val
 
 
-def make_HF_ham(op1, op2, op3, density):
+def make_HF_ham(
+    op1: Optional[OneBodyOperator],
+    op2: Optional[TwoBodyOperator],
+    op3: Optional[ThreeBodyOperator],
+    density: Array,
+):
     """
     takes Hamiltonian consisting of one-body operator op1, two-body operator op2,
     and three-body operator op3, and the density matrix and returns the Hartree-Fock Hamiltonian
 
+    Any operator given as None is replaced by an empty operator of the
+    appropriate rank, i.e., it does not contribute to the Hamiltonian.
+
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
-    :type op1:      operator with to_dense()
+    :type op1:      OneBodyOperator or None
     :param op2:     sparse two-body operator with attributes indices and values
-    :type op2:      operator with indices (:,4) and values (:,)
+    :type op2:      TwoBodyOperator or None
     :param op3:     sparse three-body operator with attributes indices and values
-    :type op3:      operator with indices (:,6) and values (:,)
+    :type op3:      ThreeBodyOperator or None
     :param density: density matrix (same shape as the dense form of op1)
     :type density:  jax.Array((:,:), dtype=float or complex)
     :return:        matrix in the shape of op1 and density that is the Hartree-Fock Hamiltonian
     :rtype:         jax.Array((:,:), dtype=float or complex)
     """
+    if op1 is None:
+        op1 = OneBodyOperator.empty(len(density))
+    if op2 is None:
+        op2 = TwoBodyOperator.empty(len(density))
+    if op3 is None:
+        op3 = ThreeBodyOperator.empty(len(density))
+
     fock = jnp.asarray(op1.to_dense().astype(density.dtype))
     fock += _contract_2nf(op2, density)
     fock += 0.5 * _contract_3nf(op3, density)
@@ -141,9 +178,9 @@ def make_HF_ham(op1, op2, op3, density):
 
 
 def solve_HF(
-    op1,
-    op2,
-    op3,
+    op1: Optional[OneBodyOperator],
+    op2: Optional[TwoBodyOperator],
+    op3: Optional[ThreeBodyOperator],
     density: Array,
     mix: float = 0.5,
     eps: float = 1e-8,
@@ -163,12 +200,15 @@ def solve_HF(
     set of orbitals is then recovered by one dense diagonalization at the end
     if keep_all_orbitals is True.
 
+    Any operator given as None is replaced by an empty operator of the
+    appropriate rank, i.e., it does not contribute to the Hamiltonian.
+
     :param op1:               one-body operator, convertible to a dense matrix via op1.to_dense()
-    :type op1:                operator with to_dense()
+    :type op1:                OneBodyOperator or None
     :param op2:               sparse two-body operator with attributes indices and values
-    :type op2:                operator with indices (:,4) and values (:,)
-    :param op3:               sparse three-body operator with attributes indices and values, or None
-    :type op3:                operator with indices (:,6) and values (:,), or None
+    :type op2:                TwoBodyOperator or None
+    :param op3:               sparse three-body operator with attributes indices and values
+    :type op3:                ThreeBodyOperator or None
     :param density:           initial density matrix (same shape as the dense form of op1)
     :type density:            jax.Array((:,:), dtype=float or complex)
     :param mix:               parameter used in the mixing: mix*new_density + (1-mix)*old_density
@@ -195,6 +235,13 @@ def solve_HF(
 
     if diagonalizer not in {"davidson", "dense"}:
         raise ValueError("diagonalizer must be 'davidson' or 'dense'")
+
+    if op1 is None:
+        op1 = OneBodyOperator.empty(len(density))
+    if op2 is None:
+        op2 = TwoBodyOperator.empty(len(density))
+    if op3 is None:
+        op3 = ThreeBodyOperator.empty(len(density))
 
     h1_dense, v2_idx, v2_val, w3_idx, w3_val, _density = _prepare_inputs(
         op1, op2, op3, density, sm
