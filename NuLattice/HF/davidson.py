@@ -11,12 +11,6 @@ SHIFT_REGULARIZATION = 1e-12
 def _adjoint(x: Array) -> Array:
     return jnp.swapaxes(jnp.conj(x), -1, -2)
 
-def _make_hermitian(x: Array) -> Array:
-    return 0.5 * (x + _adjoint(x))
-
-def density_from_orbitals(orbitals: Array) -> Array:
-    return _make_hermitian(orbitals @ _adjoint(orbitals))
-
 def _cholesky_qr(x: Array) -> Array:
     # Compute the small overlap matrix (2k x 2k).
     S = _adjoint(x) @ x
@@ -37,12 +31,12 @@ def _regularize_denominator(denom: Array, shift: float) -> Array:
 @partial(jax.jit, static_argnames=("npart",))
 def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     """
-    Finds the lowest `npart` eigenvalues/eigenvectors of a sharded dense Hamiltonian H.
+    Finds the lowest `npart` eigenvalues/eigenvectors of a matrix H.
 
     Args:
-        H: Sharded Hamiltonian matrix of shape (nstat, nstat)
+        H: Matrix of shape (nstat, nstat)
         npart: Number of occupied states (lowest roots needed)
-        guess_vecs: Initial guess vectors of shape (nstat, npart) from previous SCF step
+        guess_vecs: Initial guess vectors of shape (nstat, npart) from previous solution
         max_iter: Number of subspace expansion steps (try 3-5 for warm starts)
 
     Frankensteined from https://joshuagoings.com/2013/08/23/davidsons-method/
