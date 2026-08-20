@@ -1,5 +1,20 @@
+"""
+functions to perform a Hartree-Fock computation on the lattice, implemented in JAX
+
+The one-body part of the Hamiltonian is passed as an operator that can be
+converted to a dense matrix via op1.to_dense(), while the two- and three-body
+parts are passed as sparse operators carrying the attributes indices and
+values, i.e., a list of index tuples [p,q,r,s] or [a,b,c,d,e,f] and the
+associated matrix elements.
+"""
+__authors__   =  "Thomas Papenbrock, Vivek Booshan, Matthias Heinz"
+__credits__   =  ["Thomas Papenbrock", "Vivek Booshan", "Matthias Heinz"]
+__copyright__ = "(c) Thomas Papenbrock, Vivek Booshan, Matthias Heinz"
+__license__   = "BSD-3-Clause"
+__date__      = "2026"
+
 from functools import partial
-from typing import Tuple, Literal
+from typing import Literal, List
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +27,19 @@ Array = jax.Array
 EigenSolver = Literal["dense", "davidson"]
 
 
-def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
+def init_density(number_of_states: int, hole_indices: List[int], dtype=None):
+    """
+    creates a density matrix of dimension number_of_states x number_of_states given the hole information
+
+    :param number_of_states: dimension of single-particle basis
+    :type number_of_states:  int
+    :param hole_indices:     list of occupied single-particle states, as numbers from 0 ... A-1
+    :type hole_indices:      list(int, int, ... )
+    :param dtype:            data type of returned object
+    :type dtype:             jax.numpy.dtype, i.e., jnp.float64 or jnp.complex128
+    :return:                 density matrix where hole states are occupied (1) and all others not (0)
+    :rtype:                  jax.Array((number_of_states,number_of_states), dtype=float)
+    """
     density = jnp.zeros((number_of_states, number_of_states), dtype=dtype)
     hole_indices = jnp.array(hole_indices)
     density = density.at[hole_indices, hole_indices].set(1.0)
@@ -20,6 +47,24 @@ def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
 
 
 def HF_energy(op1, op2, op3, density):
+    """
+    Computes the Hartree-Fock energy for a given density and Hamiltonian consisting
+    of one-body term op1, two-body term op2, and three-body term op3
+
+    Warns if the expectation value acquires a sizeable imaginary part, which
+    signals an inconsistent density matrix or Hamiltonian.
+
+    :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:      operator with to_dense()
+    :param op2:     sparse two-body operator with attributes indices and values
+    :type op2:      operator with indices (:,4) and values (:,)
+    :param op3:     sparse three-body operator with attributes indices and values
+    :type op3:      operator with indices (:,6) and values (:,)
+    :param density: density matrix (same shape as the dense form of op1)
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        Hartree-Fock energy
+    :rtype:         jax.Array((), dtype=float)
+    """
     energy = evaluate_slater_determinant_expectation_value(
         op1, op2, op3, density, force_real=False
     )
@@ -34,6 +79,27 @@ def HF_energy(op1, op2, op3, density):
 def evaluate_slater_determinant_expectation_value(
     op1, op2, op3, density, force_real=False
 ):
+    """
+    evaluates the expectation value of the Hamiltonian in the Slater determinant
+    defined by the density matrix
+
+    The one-, two-, and three-body pieces enter with the weights 1, 1/2, and
+    1/6, respectively, so that the trace against the density gives the energy
+    and not the Hartree-Fock Hamiltonian (see make_HF_ham for the latter).
+
+    :param op1:        one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:         operator with to_dense()
+    :param op2:        sparse two-body operator with attributes indices and values
+    :type op2:         operator with indices (:,4) and values (:,)
+    :param op3:        sparse three-body operator with attributes indices and values
+    :type op3:         operator with indices (:,6) and values (:,)
+    :param density:    density matrix (same shape as the dense form of op1)
+    :type density:     jax.Array((:,:), dtype=float or complex)
+    :param force_real: if True, the imaginary part of the result is discarded
+    :type force_real:  bool
+    :return:           expectation value of the Hamiltonian
+    :rtype:            jax.Array((), dtype=float or complex)
+    """
     f_1b = jnp.zeros_like(density)
     f_1b += jnp.asarray(op1.to_dense())
     f_1b += 0.5 * _contract_2nf(op2, density)
@@ -47,6 +113,21 @@ def evaluate_slater_determinant_expectation_value(
 
 
 def make_HF_ham(op1, op2, op3, density):
+    """
+    takes Hamiltonian consisting of one-body operator op1, two-body operator op2,
+    and three-body operator op3, and the density matrix and returns the Hartree-Fock Hamiltonian
+
+    :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:      operator with to_dense()
+    :param op2:     sparse two-body operator with attributes indices and values
+    :type op2:      operator with indices (:,4) and values (:,)
+    :param op3:     sparse three-body operator with attributes indices and values
+    :type op3:      operator with indices (:,6) and values (:,)
+    :param density: density matrix (same shape as the dense form of op1)
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        matrix in the shape of op1 and density that is the Hartree-Fock Hamiltonian
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     fock = jnp.asarray(op1.to_dense().astype(density.dtype))
     fock += _contract_2nf(op2, density)
     fock += 0.5 * _contract_3nf(op3, density)
@@ -67,6 +148,44 @@ def solve_HF(
     diagonalizer: EigenSolver = "davidson",
     keep_all_orbitals: bool = True,
 ):
+    """
+    Solve the Hartree-Fock problem
+
+    The iteration is stopped once the change of the density matrix drops below
+    eps. With diagonalizer="davidson" only the npart lowest orbitals are
+    computed in each iteration, warm-started from the previous ones; the full
+    set of orbitals is then recovered by one dense diagonalization at the end
+    if keep_all_orbitals is True.
+
+    :param op1:               one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:                operator with to_dense()
+    :param op2:               sparse two-body operator with attributes indices and values
+    :type op2:                operator with indices (:,4) and values (:,)
+    :param op3:               sparse three-body operator with attributes indices and values, or None
+    :type op3:                operator with indices (:,6) and values (:,), or None
+    :param density:           initial density matrix (same shape as the dense form of op1)
+    :type density:            jax.Array((:,:), dtype=float or complex)
+    :param mix:               parameter used in the mixing: mix*new_density + (1-mix)*old_density
+    :type mix:                float
+    :param eps:               convergence criterion for the change of the density matrix
+    :type eps:                float
+    :param max_iter:          maximum number of HF iterations
+    :type max_iter:           int
+    :param davidson_max_iter: number of subspace expansion steps taken by the Davidson solver
+    :type davidson_max_iter:  int
+    :param verbose:           if True, print energy and residuals for every iteration
+    :type verbose:            bool
+    :param sm:                sharding manager used to distribute the arrays, or None for a single device
+    :type sm:                 ShardingManager or None
+    :param diagonalizer:      eigensolver used in each iteration, either "dense" or "davidson"
+    :type diagonalizer:       str
+    :param keep_all_orbitals: if True, return all orbitals; if False, return only the occupied ones
+    :type keep_all_orbitals:  bool
+    :return:                  energy, transformation matrix that diagonalizes the HF Hamiltonian
+                              (the first A columns are occupied), converged
+    :rtype:                   jax.Array((), dtype=float), jax.Array((:,:), dtype=float or complex), bool
+    :raises ValueError:       if diagonalizer is neither "dense" nor "davidson"
+    """
 
     if diagonalizer not in {"davidson", "dense"}:
         raise ValueError("diagonalizer must be 'davidson' or 'dense'")
@@ -123,16 +242,46 @@ def solve_HF(
 
 
 def _adjoint(x):
+    """
+    takes the hermitian conjugate of a matrix, i.e., transposes the last two axes and conjugates
+
+    :param x: matrix (or stack of matrices) to be conjugated
+    :type x:  jax.Array((...,:,:), dtype=float or complex)
+    :return:  hermitian conjugate of x
+    :rtype:   jax.Array((...,:,:), dtype=float or complex)
+    """
     return jnp.swapaxes(jnp.conj(x), -1, -2)
 
 
 def _make_hermitian(x):
+    """
+    symmetrizes a matrix, i.e., returns its hermitian part
+
+    :param x: matrix to be symmetrized
+    :type x:  jax.Array((:,:), dtype=float or complex)
+    :return:  (x + x^dagger)/2
+    :rtype:   jax.Array((:,:), dtype=float or complex)
+    """
     return 0.5 * (x + _adjoint(x))
 
 
 @jax.jit
 def _contract_2nf_fused(indices: Array, values: Array, density: Array) -> Array:
-    """Contract the sparse two-body interaction with a one-body density."""
+    """
+    Contract the sparse two-body interaction with a one-body density.
+
+    Each stored matrix element <pq|v|rs> contributes the four antisymmetric
+    combinations obtained from the permutations P(pq) and P(rs).
+
+    :param indices: index tuples [p,q,r,s] of the stored two-body matrix elements
+    :type indices:  jax.Array((num_ele,4), dtype=int)
+    :param values:  two-body matrix elements belonging to indices
+    :type values:   jax.Array((num_ele,), dtype=float or complex)
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        one-body operator of the same shape as the density matrix
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     p, q, r, s = (indices[:, i] for i in range(4))
     n = density.shape[0]
     dtype = jnp.result_type(values.dtype, density.dtype)
@@ -146,7 +295,23 @@ def _contract_2nf_fused(indices: Array, values: Array, density: Array) -> Array:
 
 @jax.jit
 def _contract_3nf_fused(indices: Array, values: Array, density: Array) -> Array:
-    """Contract the sparse three-body interaction with two densities."""
+    """
+    Contract the sparse three-body interaction with two densities.
+
+    Each stored matrix element contributes the 36 antisymmetric combinations of
+    the ket (abc) and bra (def) single-particle states. Of these, pairs are
+    identical because the two densities commute under relabeling, so only 18
+    terms are written out and the matrix elements are multiplied by two.
+
+    :param indices: index tuples [a,b,c,d,e,f] of the stored three-body matrix elements
+    :type indices:  jax.Array((num_ele,6), dtype=int)
+    :param values:  three-body matrix elements belonging to indices
+    :type values:   jax.Array((num_ele,), dtype=float or complex)
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        one-body operator of the same shape as the density matrix
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     a, b, c, d, e, f = (indices[:, i] for i in range(6))
     n = density.shape[0]
     dtype = jnp.result_type(values.dtype, density.dtype)
@@ -192,6 +357,27 @@ def _build_2b_and_3b_fock_matrices(
     w3_idx: Array = None,
     w3_val: Array = None,
 ) -> tuple[Array, Array]:
+    """
+    contracts the two- and three-body interactions with the density to get the
+    corresponding one-body (Fock) matrices
+
+    Both results are explicitly symmetrized to remove the small hermiticity
+    violations caused by the sparse storage and the scatter-adds.
+
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :param v2_idx:  index tuples [p,q,r,s] of the two-body matrix elements
+    :type v2_idx:   jax.Array((:,4), dtype=int)
+    :param v2_val:  two-body matrix elements belonging to v2_idx
+    :type v2_val:   jax.Array((:,), dtype=float or complex)
+    :param w3_idx:  index tuples [a,b,c,d,e,f] of the three-body matrix elements, or None
+    :type w3_idx:   jax.Array((:,6), dtype=int) or None
+    :param w3_val:  three-body matrix elements belonging to w3_idx, or None
+    :type w3_val:   jax.Array((:,), dtype=float or complex) or None
+    :return:        two-body Fock matrix and three-body Fock matrix (the latter is
+                    None if no three-body interaction was given)
+    :rtype:         jax.Array((:,:), dtype=float or complex), jax.Array((:,:), dtype=float or complex) or None
+    """
     fock_2b = _make_hermitian(_contract_2nf_fused(v2_idx, v2_val, density))
     fock_3b = None
     if (w3_idx is not None) and (w3_val is not None):
@@ -204,6 +390,18 @@ def _build_full_fock_matrix(
     fock_2b: Array,
     fock_3b: Array = None,
 ) -> Array:
+    """
+    assembles the Hartree-Fock Hamiltonian from its one-, two-, and three-body pieces
+
+    :param h1:      dense one-body matrix elements
+    :type h1:       jax.Array((:,:), dtype=float or complex)
+    :param fock_2b: two-body interaction contracted with one density
+    :type fock_2b:  jax.Array((:,:), dtype=float or complex)
+    :param fock_3b: three-body interaction contracted with two densities, or None
+    :type fock_3b:  jax.Array((:,:), dtype=float or complex) or None
+    :return:        hermitian Hartree-Fock Hamiltonian
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     if fock_3b is None:
         return _make_hermitian(h1 + fock_2b)
     return _make_hermitian(h1 + fock_2b + 0.5 * fock_3b)
@@ -215,6 +413,23 @@ def _compute_hf_energy_from_fock_matrices(
     fock_2b: Array,
     fock_3b: Array = None,
 ) -> Array:
+    """
+    computes the Hartree-Fock energy from the already contracted Fock matrices
+
+    The pieces enter with the weights 1, 1/2, and 1/6, so that no double
+    counting of the interaction energy occurs.
+
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :param h1:      dense one-body matrix elements
+    :type h1:       jax.Array((:,:), dtype=float or complex)
+    :param fock_2b: two-body interaction contracted with one density
+    :type fock_2b:  jax.Array((:,:), dtype=float or complex)
+    :param fock_3b: three-body interaction contracted with two densities, or None
+    :type fock_3b:  jax.Array((:,:), dtype=float or complex) or None
+    :return:        Hartree-Fock energy
+    :rtype:         jax.Array((), dtype=float)
+    """
 
     e_h1 = jnp.einsum("ij,ji->", h1, density)
     e_2b = jnp.einsum("ij,ji->", fock_2b, density)
@@ -244,6 +459,40 @@ def _iterate_hf_equations(
     diagonalizer,
     davidson_max_iter,
 ):
+    """
+    Performs one iteration of the Hartree-Fock procedure
+
+    The returned energy is the one belonging to the incoming density, i.e., it
+    is evaluated before the Fock matrix is diagonalized and the density is
+    updated.
+
+    :param density:             square density matrix
+    :type density:              jax.Array((:,:), dtype=float or complex)
+    :param h1:                  dense one-body matrix elements
+    :type h1:                   jax.Array((:,:), dtype=float or complex)
+    :param v2_idx:              index tuples [p,q,r,s] of the two-body matrix elements
+    :type v2_idx:               jax.Array((:,4), dtype=int)
+    :param v2_val:              two-body matrix elements belonging to v2_idx
+    :type v2_val:               jax.Array((:,), dtype=float or complex)
+    :param w3_idx:              index tuples [a,b,c,d,e,f] of the three-body matrix elements, or None
+    :type w3_idx:               jax.Array((:,6), dtype=int) or None
+    :param w3_val:              three-body matrix elements belonging to w3_idx, or None
+    :type w3_val:               jax.Array((:,), dtype=float or complex) or None
+    :param number_of_particles: number of occupied single-particle states
+    :type number_of_particles:  int
+    :param mixing_param:        returned density is mix*new_density + (1-mix)*old_density
+    :type mixing_param:         float
+    :param prev_vecs:           occupied orbitals of the previous iteration, used to warm-start Davidson
+    :type prev_vecs:            jax.Array((:,number_of_particles), dtype=float or complex)
+    :param diagonalizer:        eigensolver to be used, either "dense" or "davidson"
+    :type diagonalizer:         str
+    :param davidson_max_iter:   number of subspace expansion steps taken by the Davidson solver
+    :type davidson_max_iter:    int
+    :return:                    occupied orbitals, HF energy of the incoming density, mixed
+                                density matrix, and the summed absolute change of the density
+    :rtype:                     jax.Array((:,:), dtype=float or complex), jax.Array((), dtype=float),
+                                jax.Array((:,:), dtype=float or complex), jax.Array((), dtype=float)
+    """
     fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(
         density, v2_idx, v2_val, w3_idx, w3_val
     )
@@ -268,6 +517,28 @@ def _iterate_hf_equations(
 def _prepare_inputs(
     op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp.float64
 ):
+    """
+    converts the operators and the density into the plain arrays used by the
+    Hartree-Fock iteration and, if requested, distributes them over devices
+
+    :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:      operator with to_dense()
+    :param op2:     sparse two-body operator with attributes indices and values
+    :type op2:      operator with indices (:,4) and values (:,)
+    :param op3:     sparse three-body operator with attributes indices and values, or None
+    :type op3:      operator with indices (:,6) and values (:,), or None
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :param sm:      sharding manager used to distribute the arrays, or None for a single device
+    :type sm:       ShardingManager or None
+    :param dtype:   data type used for the arrays
+    :type dtype:    jax.numpy.dtype
+    :return:        dense one-body matrix, two-body indices and values, three-body
+                    indices and values (both None without a three-body force), and density
+    :rtype:         jax.Array((:,:), dtype=float or complex), jax.Array((:,4), dtype=int),
+                    jax.Array((:,), dtype=float or complex), jax.Array((:,6), dtype=int) or None,
+                    jax.Array((:,), dtype=float or complex) or None, jax.Array((:,:), dtype=float or complex)
+    """
     has_three_body = op3 is not None and len(op3) > 0
 
     if sm is not None:
@@ -300,6 +571,23 @@ def _prepare_inputs(
 
 
 def _guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.Array:
+    """
+    extracts a set of npart occupied orbitals from a density matrix
+
+    The density is a projector onto the occupied space, so applying it to a
+    random trial basis and orthonormalizing the result gives vectors that span
+    that space. The vectors with eigenvalue close to one are kept; a few extra
+    trial vectors (CONDITION_NUMBER) are used to keep the QR decomposition well
+    conditioned. These orbitals serve as the initial guess for the Davidson
+    solver.
+
+    :param density: square density matrix, assumed to be a projector
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :param npart:   number of occupied single-particle states
+    :type npart:    int
+    :return:        orthonormal orbitals spanning the occupied space of density
+    :rtype:         jax.Array((:,npart), dtype=float or complex)
+    """
     # We generate a random matrix P that serve as trial basis to get the eigenvectors of dens
     # P has the size npart + CONDITION_NUMBER, where CONDITION_NUMBER ensures numerical stability
     dim = len(density)
@@ -359,6 +647,16 @@ def _guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax
 
 
 def _contract_3nf(op3, density):
+    """
+    takes a sparse three-body operator and contracts it with two densities to get a one-body operator
+
+    :param op3:     sparse three-body operator with attributes indices and values
+    :type op3:      operator with indices (:,6) and values (:,)
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        one-body operator of the same shape as the density matrix
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     w3_idx = jnp.asarray(op3.indices)
     w3_val = jnp.asarray(op3.values)
 
@@ -366,6 +664,16 @@ def _contract_3nf(op3, density):
 
 
 def _contract_2nf(op2, density):
+    """
+    takes a sparse two-body operator and contracts it with the density to get a one-body operator
+
+    :param op2:     sparse two-body operator with attributes indices and values
+    :type op2:      operator with indices (:,4) and values (:,)
+    :param density: square density matrix
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :return:        one-body operator of the same shape as the density matrix
+    :rtype:         jax.Array((:,:), dtype=float or complex)
+    """
     v2_idx = jnp.asarray(op2.indices)
     v2_val = jnp.asarray(op2.values)
 
@@ -373,6 +681,27 @@ def _contract_2nf(op2, density):
 
 
 def _HF_iter(op1, op2, op3, density, mix=0.5):
+    """
+    Performs one iteration of the Hartree-Fock procedure using dense diagonalization
+
+    This is the straightforward reference implementation kept for testing; the
+    production path goes through _iterate_hf_equations.
+
+    :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
+    :type op1:      operator with to_dense()
+    :param op2:     sparse two-body operator with attributes indices and values
+    :type op2:      operator with indices (:,4) and values (:,)
+    :param op3:     sparse three-body operator with attributes indices and values
+    :type op3:      operator with indices (:,6) and values (:,)
+    :param density: density matrix (same shape as the dense form of op1)
+    :type density:  jax.Array((:,:), dtype=float or complex)
+    :param mix:     returned density matrix is mix*new_density + (1-mix)*old_density
+    :type mix:      float
+    :return:        current HF energy, mixed density matrix, and the transformation
+                    matrix that diagonalizes the HF Hamiltonian
+    :rtype:         jax.Array((), dtype=float), jax.Array((:,:), dtype=float or complex),
+                    jax.Array((:,:), dtype=float or complex)
+    """
     npart = round(jnp.real(jnp.trace(density)))
 
     energy = HF_energy(op1, op2, op3, density)
