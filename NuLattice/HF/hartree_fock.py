@@ -14,12 +14,12 @@ __license__   = "BSD-3-Clause"
 __date__      = "2026"
 
 from functools import partial
-from typing import Literal, List
+from typing import Literal, List, Optional
 
 import jax
 import jax.numpy as jnp
 
-from NuLattice.utils._jax_types import ShardingManager
+from NuLattice.utils._jax_types import ShardingManager, OneBodyOperator, TwoBodyOperator, ThreeBodyOperator
 
 from .davidson import davidson_eigh
 
@@ -27,7 +27,7 @@ Array = jax.Array
 EigenSolver = Literal["dense", "davidson"]
 
 
-def init_density(number_of_states: int, hole_indices: List[int], dtype=None):
+def init_density(number_of_states: int, hole_indices: List[int], dtype=None) -> Array:
     """
     creates a density matrix of dimension number_of_states x number_of_states given the hole information
 
@@ -46,7 +46,7 @@ def init_density(number_of_states: int, hole_indices: List[int], dtype=None):
     return density
 
 
-def HF_energy(op1, op2, op3, density):
+def HF_energy(op1: Optional[OneBodyOperator], op2: Optional[ThreeBodyOperator], op3: Optional[ThreeBodyOperator], density: Array):
     """
     Computes the Hartree-Fock energy for a given density and Hamiltonian consisting
     of one-body term op1, two-body term op2, and three-body term op3
@@ -65,6 +65,12 @@ def HF_energy(op1, op2, op3, density):
     :return:        Hartree-Fock energy
     :rtype:         jax.Array((), dtype=float)
     """
+    if op1 is None:
+        op1 = OneBodyOperator.empty(len(density))
+    if op2 is None:
+        op2 = TwoBodyOperator.empty(len(density))
+    if op3 is None:
+        op3 = ThreeBodyOperator.empty(len(density))
     energy = evaluate_slater_determinant_expectation_value(
         op1, op2, op3, density, force_real=False
     )
@@ -354,8 +360,8 @@ def _build_2b_and_3b_fock_matrices(
     density: Array,
     v2_idx: Array,
     v2_val: Array,
-    w3_idx: Array = None,
-    w3_val: Array = None,
+    w3_idx: Array,
+    w3_val: Array,
 ) -> tuple[Array, Array]:
     """
     contracts the two- and three-body interactions with the density to get the
@@ -379,16 +385,14 @@ def _build_2b_and_3b_fock_matrices(
     :rtype:         jax.Array((:,:), dtype=float or complex), jax.Array((:,:), dtype=float or complex) or None
     """
     fock_2b = _make_hermitian(_contract_2nf_fused(v2_idx, v2_val, density))
-    fock_3b = None
-    if (w3_idx is not None) and (w3_val is not None):
-        fock_3b = _make_hermitian(_contract_3nf_fused(w3_idx, w3_val, density))
+    fock_3b = _make_hermitian(_contract_3nf_fused(w3_idx, w3_val, density))
     return fock_2b, fock_3b
 
 
 def _build_full_fock_matrix(
     h1: Array,
     fock_2b: Array,
-    fock_3b: Array = None,
+    fock_3b: Array,
 ) -> Array:
     """
     assembles the Hartree-Fock Hamiltonian from its one-, two-, and three-body pieces
@@ -402,8 +406,6 @@ def _build_full_fock_matrix(
     :return:        hermitian Hartree-Fock Hamiltonian
     :rtype:         jax.Array((:,:), dtype=float or complex)
     """
-    if fock_3b is None:
-        return _make_hermitian(h1 + fock_2b)
     return _make_hermitian(h1 + fock_2b + 0.5 * fock_3b)
 
 
@@ -411,7 +413,7 @@ def _compute_hf_energy_from_fock_matrices(
     density: Array,
     h1: Array,
     fock_2b: Array,
-    fock_3b: Array = None,
+    fock_3b: Array,
 ) -> Array:
     """
     computes the Hartree-Fock energy from the already contracted Fock matrices
@@ -433,9 +435,7 @@ def _compute_hf_energy_from_fock_matrices(
 
     e_h1 = jnp.einsum("ij,ji->", h1, density)
     e_2b = jnp.einsum("ij,ji->", fock_2b, density)
-    e_3b = jnp.asarray(0, dtype=jnp.real(density[0]).dtype)
-    if fock_3b is not None:
-        e_3b = jnp.einsum("ij,ji->", fock_3b, density)
+    e_3b = jnp.einsum("ij,ji->", fock_3b, density)
     return jnp.real(e_h1 + 0.5 * e_2b + (1.0 / 6.0) * e_3b)
 
 
@@ -539,8 +539,6 @@ def _prepare_inputs(
                     jax.Array((:,), dtype=float or complex), jax.Array((:,6), dtype=int) or None,
                     jax.Array((:,), dtype=float or complex) or None, jax.Array((:,:), dtype=float or complex)
     """
-    has_three_body = op3 is not None and len(op3) > 0
-
     if sm is not None:
         assert (
             sm.num_nodes == 1 or sm.num_gpus == 1
@@ -549,22 +547,14 @@ def _prepare_inputs(
         density = sm.prepare(density, rank=0)
         v2_idx = sm.prepare(op2.indices)
         v2_val = sm.prepare(op2.values)
-        if has_three_body:
-            w3_idx = sm.prepare(op3.indices)
-            w3_val = sm.prepare(op3.values)
-        else:
-            w3_idx = None
-            w3_val = None
+        w3_idx = sm.prepare(op3.indices)
+        w3_val = sm.prepare(op3.values)
     else:
         h1 = jnp.asarray(op1.to_dense())
         v2_idx = jnp.asarray(op2.indices)
         v2_val = jnp.asarray(op2.values)
-        if has_three_body:
-            w3_idx = jnp.asarray(op3.indices)
-            w3_val = jnp.asarray(op3.values)
-        else:
-            w3_idx = None
-            w3_val = None
+        w3_idx = jnp.asarray(op3.indices)
+        w3_val = jnp.asarray(op3.values)
         density = jnp.asarray(density)
 
     return h1, v2_idx, v2_val, w3_idx, w3_val, density
