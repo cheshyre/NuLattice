@@ -1,11 +1,5 @@
 """
 functions to perform a Hartree-Fock computation on the lattice, implemented in JAX
-
-The one-body part of the Hamiltonian is passed as an operator that can be
-converted to a dense matrix via op1.to_dense(), while the two- and three-body
-parts are passed as sparse operators carrying the attributes indices and
-values, i.e., a list of index tuples [p,q,r,s] or [a,b,c,d,e,f] and the
-associated matrix elements.
 """
 __authors__   =  "Thomas Papenbrock, Vivek Booshan, Matthias Heinz"
 __credits__   =  ["Thomas Papenbrock", "Vivek Booshan", "Matthias Heinz"]
@@ -64,9 +58,9 @@ def HF_energy(
 
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:      OneBodyOperator or None
-    :param op2:     sparse two-body operator with attributes indices and values
+    :param op2:     sparse two-body operator
     :type op2:      TwoBodyOperator or None
-    :param op3:     sparse three-body operator with attributes indices and values
+    :param op3:     sparse three-body operator
     :type op3:      ThreeBodyOperator or None
     :param density: density matrix (same shape as the dense form of op1)
     :type density:  jax.Array((:,:), dtype=float or complex)
@@ -110,9 +104,9 @@ def evaluate_slater_determinant_expectation_value(
 
     :param op1:        one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:         OneBodyOperator or None
-    :param op2:        sparse two-body operator with attributes indices and values
+    :param op2:        sparse two-body operator
     :type op2:         TwoBodyOperator or None
-    :param op3:        sparse three-body operator with attributes indices and values
+    :param op3:        sparse three-body operator
     :type op3:         ThreeBodyOperator or None
     :param density:    density matrix (same shape as the dense form of op1)
     :type density:     jax.Array((:,:), dtype=float or complex)
@@ -155,9 +149,9 @@ def make_HF_ham(
 
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:      OneBodyOperator or None
-    :param op2:     sparse two-body operator with attributes indices and values
+    :param op2:     sparse two-body operator
     :type op2:      TwoBodyOperator or None
-    :param op3:     sparse three-body operator with attributes indices and values
+    :param op3:     sparse three-body operator
     :type op3:      ThreeBodyOperator or None
     :param density: density matrix (same shape as the dense form of op1)
     :type density:  jax.Array((:,:), dtype=float or complex)
@@ -205,9 +199,9 @@ def solve_HF(
 
     :param op1:               one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:                OneBodyOperator or None
-    :param op2:               sparse two-body operator with attributes indices and values
+    :param op2:               sparse two-body operator
     :type op2:                TwoBodyOperator or None
-    :param op3:               sparse three-body operator with attributes indices and values
+    :param op3:               sparse three-body operator
     :type op3:                ThreeBodyOperator or None
     :param density:           initial density matrix (same shape as the dense form of op1)
     :type density:            jax.Array((:,:), dtype=float or complex)
@@ -590,9 +584,9 @@ def _prepare_inputs(
 
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:      OneBodyOperator
-    :param op2:     sparse two-body operator with attributes indices and values
+    :param op2:     sparse two-body operator
     :type op2:      TwoBodyOperator
-    :param op3:     sparse three-body operator with attributes indices and values
+    :param op3:     sparse three-body operator
     :type op3:      ThreeBodyOperator
     :param density: square density matrix
     :type density:  jax.Array((:,:), dtype=float or complex)
@@ -613,22 +607,21 @@ def _prepare_inputs(
                     * **density** (*jax.Array((:,:), dtype=float or complex)*) -- density matrix
     :rtype:         tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
     """
+    v2_idx, v2_val = op2.to_jax_indices_and_values()
+    w3_idx, w3_val = op3.to_jax_indices_and_values()
+
     if sm is not None:
         assert (
             sm.num_nodes == 1 or sm.num_gpus == 1
         ), "HF expects 1D mesh, ensure sm.num_nodes or sm.num_gpus is 1"
         h1 = sm.prepare(op1.to_dense(), rank=0)
         density = sm.prepare(density, rank=0)
-        v2_idx = sm.prepare(op2.indices)
-        v2_val = sm.prepare(op2.values)
-        w3_idx = sm.prepare(op3.indices)
-        w3_val = sm.prepare(op3.values)
+        v2_idx = sm.prepare(v2_idx)
+        v2_val = sm.prepare(v2_val)
+        w3_idx = sm.prepare(w3_idx)
+        w3_val = sm.prepare(w3_val)
     else:
         h1 = jnp.asarray(op1.to_dense())
-        v2_idx = jnp.asarray(op2.indices)
-        v2_val = jnp.asarray(op2.values)
-        w3_idx = jnp.asarray(op3.indices)
-        w3_val = jnp.asarray(op3.values)
         density = jnp.asarray(density)
 
     return h1, v2_idx, v2_val, w3_idx, w3_val, density
@@ -714,15 +707,14 @@ def _contract_3nf(op3: ThreeBodyOperator, density: Array) -> Array:
     """
     takes a sparse three-body operator and contracts it with two densities to get a one-body operator
 
-    :param op3:     sparse three-body operator with attributes indices and values
-    :type op3:      operator with indices (:,6) and values (:,)
+    :param op3:     sparse three-body operator
+    :type op3:      ThreeBodyOperator
     :param density: square density matrix
     :type density:  jax.Array((:,:), dtype=float or complex)
     :return:        one-body operator of the same shape as the density matrix
     :rtype:         jax.Array((:,:), dtype=float or complex)
     """
-    w3_idx = jnp.asarray(op3.indices)
-    w3_val = jnp.asarray(op3.values)
+    w3_idx, w3_val = op3.to_jax_indices_and_values()
 
     return _contract_3nf_fused(w3_idx, w3_val, density)
 
@@ -731,15 +723,14 @@ def _contract_2nf(op2: TwoBodyOperator, density: Array) -> Array:
     """
     takes a sparse two-body operator and contracts it with the density to get a one-body operator
 
-    :param op2:     sparse two-body operator with attributes indices and values
-    :type op2:      operator with indices (:,4) and values (:,)
+    :param op2:     sparse two-body operator
+    :type op2:      TwoBodyOperator
     :param density: square density matrix
     :type density:  jax.Array((:,:), dtype=float or complex)
     :return:        one-body operator of the same shape as the density matrix
     :rtype:         jax.Array((:,:), dtype=float or complex)
     """
-    v2_idx = jnp.asarray(op2.indices)
-    v2_val = jnp.asarray(op2.values)
+    v2_idx, v2_val = op2.to_jax_indices_and_values()
 
     return _contract_2nf_fused(v2_idx, v2_val, density)
 
@@ -762,9 +753,9 @@ def _HF_iter(
 
     :param op1:     one-body operator, convertible to a dense matrix via op1.to_dense()
     :type op1:      OneBodyOperator or None
-    :param op2:     sparse two-body operator with attributes indices and values
+    :param op2:     sparse two-body operator
     :type op2:      TwoBodyOperator or None
-    :param op3:     sparse three-body operator with attributes indices and values
+    :param op3:     sparse three-body operator
     :type op3:      ThreeBodyOperator or None
     :param density: density matrix (same shape as the dense form of op1)
     :type density:  jax.Array((:,:), dtype=float or complex)

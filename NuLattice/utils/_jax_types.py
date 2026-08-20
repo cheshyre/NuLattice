@@ -24,6 +24,9 @@ class _OperatorBase:
     def __len__(self):
         return len(self.values)
 
+    def to_jax_indices_and_values(self):
+        return self.indices, self.values
+
     def to_list(self):
         if len(self) == 0:
             return []
