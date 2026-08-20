@@ -34,7 +34,7 @@ class _OperatorBase:
         out_list = []
         for i in range(len(self.values)):
             row = self.indices[i].tolist()
-            row.append(self.values[i])
+            row.append(self.values[i].item())
             out_list.append(row)
         return out_list
 
