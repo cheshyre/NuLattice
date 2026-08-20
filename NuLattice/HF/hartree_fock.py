@@ -20,7 +20,9 @@ def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
 
 
 def HF_energy(op1, op2, op3, density):
-    energy = evaluate_slater_determinant_expectation_value(op1, op2, op3, density, force_real=False)
+    energy = evaluate_slater_determinant_expectation_value(
+        op1, op2, op3, density, force_real=False
+    )
 
     if jnp.abs(jnp.imag(energy)) > 1e-4:
         print(f"Warning: Computed energy is complex: {energy}")
@@ -29,7 +31,9 @@ def HF_energy(op1, op2, op3, density):
     return jnp.real(energy)
 
 
-def evaluate_slater_determinant_expectation_value(op1, op2, op3, density, force_real=False):
+def evaluate_slater_determinant_expectation_value(
+    op1, op2, op3, density, force_real=False
+):
     f_1b = jnp.zeros_like(density)
     f_1b += jnp.asarray(op1.to_dense())
     f_1b += 0.5 * _contract_2nf(op2, density)
@@ -54,8 +58,8 @@ def solve_HF(
     op2,
     op3,
     density: Array,
-    mix: float =0.5,
-    eps: float =1e-8,
+    mix: float = 0.5,
+    eps: float = 1e-8,
     max_iter: int = 100,
     davidson_max_iter: int = 10,
     verbose: bool = False,
@@ -79,8 +83,17 @@ def solve_HF(
 
     for i in range(max_iter):
         occupied_orbitals, energy, _density, diff_density = _iterate_hf_equations(
-            _density, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occupied_orbitals,
-            diagonalizer, davidson_max_iter,
+            _density,
+            h1_dense,
+            v2_idx,
+            v2_val,
+            w3_idx,
+            w3_val,
+            npart,
+            mix,
+            occupied_orbitals,
+            diagonalizer,
+            davidson_max_iter,
         )
 
         dE = jnp.abs(energy - prev_energy)
@@ -88,19 +101,20 @@ def solve_HF(
         if verbose:
             print(f"Iter {i}: E={energy:.8f}, dE={dE:.6e}, dRho={diff_density:.6e}")
 
-        if (diff_density < eps):
+        if diff_density < eps:
             converged = True
             break
 
         prev_energy = energy
 
     if keep_all_orbitals:
-        fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(_density, v2_idx, v2_val, w3_idx, w3_val)
+        fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(
+            _density, v2_idx, v2_val, w3_idx, w3_val
+        )
         fock = _build_full_fock_matrix(h1_dense, fock_2b, fock_3b)
         _, orbs = jnp.linalg.eigh(fock)
     else:
         orbs = occupied_orbitals
-
 
     return energy, orbs, converged
 
@@ -139,17 +153,35 @@ def _contract_3nf_fused(indices: Array, values: Array, density: Array) -> Array:
     v2 = values * 2.0
     res = jnp.zeros((n, n), dtype=dtype)
 
-    res = res.at[a, d].add(v2 * (density[b, e] * density[c, f] - density[c, e] * density[b, f]))
-    res = res.at[b, d].add(v2 * (density[c, e] * density[a, f] - density[a, e] * density[c, f]))
-    res = res.at[c, d].add(v2 * (density[a, e] * density[b, f] - density[b, e] * density[a, f]))
+    res = res.at[a, d].add(
+        v2 * (density[b, e] * density[c, f] - density[c, e] * density[b, f])
+    )
+    res = res.at[b, d].add(
+        v2 * (density[c, e] * density[a, f] - density[a, e] * density[c, f])
+    )
+    res = res.at[c, d].add(
+        v2 * (density[a, e] * density[b, f] - density[b, e] * density[a, f])
+    )
 
-    res = res.at[a, e].add(v2 * (density[b, f] * density[c, d] - density[c, f] * density[b, d]))
-    res = res.at[b, e].add(v2 * (density[c, f] * density[a, d] - density[a, f] * density[c, d]))
-    res = res.at[c, e].add(v2 * (density[a, f] * density[b, d] - density[b, f] * density[a, d]))
+    res = res.at[a, e].add(
+        v2 * (density[b, f] * density[c, d] - density[c, f] * density[b, d])
+    )
+    res = res.at[b, e].add(
+        v2 * (density[c, f] * density[a, d] - density[a, f] * density[c, d])
+    )
+    res = res.at[c, e].add(
+        v2 * (density[a, f] * density[b, d] - density[b, f] * density[a, d])
+    )
 
-    res = res.at[a, f].add(v2 * (density[b, d] * density[c, e] - density[c, d] * density[b, e]))
-    res = res.at[b, f].add(v2 * (density[c, d] * density[a, e] - density[a, d] * density[c, e]))
-    res = res.at[c, f].add(v2 * (density[a, d] * density[b, e] - density[b, d] * density[a, e]))
+    res = res.at[a, f].add(
+        v2 * (density[b, d] * density[c, e] - density[c, d] * density[b, e])
+    )
+    res = res.at[b, f].add(
+        v2 * (density[c, d] * density[a, e] - density[a, d] * density[c, e])
+    )
+    res = res.at[c, f].add(
+        v2 * (density[a, d] * density[b, e] - density[b, d] * density[a, e])
+    )
     return res
 
 
@@ -192,12 +224,29 @@ def _compute_hf_energy_from_fock_matrices(
     return jnp.real(e_h1 + 0.5 * e_2b + (1.0 / 6.0) * e_3b)
 
 
-@partial(jax.jit, static_argnames=("number_of_particles", "diagonalizer", ))
+@partial(
+    jax.jit,
+    static_argnames=(
+        "number_of_particles",
+        "diagonalizer",
+    ),
+)
 def _iterate_hf_equations(
-    density, h1, v2_idx, v2_val, w3_idx, w3_val, number_of_particles, mixing_param, prev_vecs,
-    diagonalizer, davidson_max_iter
+    density,
+    h1,
+    v2_idx,
+    v2_val,
+    w3_idx,
+    w3_val,
+    number_of_particles,
+    mixing_param,
+    prev_vecs,
+    diagonalizer,
+    davidson_max_iter,
 ):
-    fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(density, v2_idx, v2_val, w3_idx, w3_val)
+    fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(
+        density, v2_idx, v2_val, w3_idx, w3_val
+    )
     fock = _build_full_fock_matrix(h1, fock_2b, fock_3b)
     energy = _compute_hf_energy_from_fock_matrices(density, h1, fock_2b, fock_3b)
 
@@ -216,11 +265,15 @@ def _iterate_hf_equations(
     return occupied_orbitals, energy, mixed_density, residual_density
 
 
-def _prepare_inputs(op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp.float64):
+def _prepare_inputs(
+    op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp.float64
+):
     has_three_body = op3 is not None and len(op3) > 0
 
     if sm is not None:
-        assert sm.num_nodes == 1 or sm.num_gpus == 1, "HF expects 1D mesh, ensure sm.num_nodes or sm.num_gpus is 1"
+        assert (
+            sm.num_nodes == 1 or sm.num_gpus == 1
+        ), "HF expects 1D mesh, ensure sm.num_nodes or sm.num_gpus is 1"
         h1 = sm.prepare(op1.to_dense(), rank=0)
         density = sm.prepare(density, rank=0)
         v2_idx = sm.prepare(op2.indices)
@@ -252,8 +305,10 @@ def _guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax
     dim = len(density)
     key = jax.random.key(42)
     CONDITION_NUMBER = 5
-    CONDITION_NUMBER = min(CONDITION_NUMBER, dim - npart) # Make sure we stay in bounds
-    P = jax.random.normal(key, shape=(dim, npart + CONDITION_NUMBER), dtype=density.dtype)
+    CONDITION_NUMBER = min(CONDITION_NUMBER, dim - npart)  # Make sure we stay in bounds
+    P = jax.random.normal(
+        key, shape=(dim, npart + CONDITION_NUMBER), dtype=density.dtype
+    )
 
     # We project out the eigenbasis of the density from P
     # This works because the density is a projector,
@@ -280,13 +335,17 @@ def _guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax
     for i in range(npart + CONDITION_NUMBER):
         if eigenvalues[i] > 0.75:
             if count >= npart:
-                print(f"Warning: Found more than npart={npart} eigenvectors of density matrix with nonzero eigenvalues.")
+                print(
+                    f"Warning: Found more than npart={npart} eigenvectors of density matrix with nonzero eigenvalues."
+                )
                 print("Something might be wrong!")
                 break
             indices = indices.at[count].set(i)
             count += 1
     if count != npart:
-        print(f"Warning: Found only {count} (which is less than npart={npart}) eigenvectors of density matrix with nonzero eigenvalues.")
+        print(
+            f"Warning: Found only {count} (which is less than npart={npart}) eigenvectors of density matrix with nonzero eigenvalues."
+        )
         print("Something might be wrong!")
 
     # We get the occupied orbitals from the eigenvalues that are nonzero
