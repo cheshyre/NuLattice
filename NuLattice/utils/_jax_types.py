@@ -11,7 +11,7 @@ import numpy as np
 from jax.experimental.sparse import BCOO
 from jax.sharding import NamedSharding, PartitionSpec as P
 
-class Operator:
+class _OperatorBase:
     def __init__(self, indices: jnp.ndarray, values: jnp.ndarray, nstat: int):
         self.nstat = nstat
         # JAX arrays are the primary backend here
@@ -93,7 +93,7 @@ class Operator:
         )
 
 
-class OneBodyOperator(Operator):
+class OneBodyOperator(_OperatorBase):
     def __init__(self, indices, values, nstat):
         super().__init__(indices, values, nstat)
         if len(self) > 0 and self.indices.shape[1] != 2:
@@ -103,7 +103,7 @@ class OneBodyOperator(Operator):
     def _get_expected_rank(cls):
         return 2
 
-class TwoBodyOperator(Operator):
+class TwoBodyOperator(_OperatorBase):
     def __init__(self, indices, values, nstat):
         super().__init__(indices, values, nstat)
         if len(self) > 0 and self.indices.shape[1] != 4:
@@ -137,7 +137,7 @@ class TwoBodyOperator(Operator):
         matrix = matrix.tocoo()
         return cls.from_scipy_coo(matrix, nstat)
 
-class ThreeBodyOperator(Operator):
+class ThreeBodyOperator(_OperatorBase):
     def __init__(self, indices, values, nstat):
         super().__init__(indices, values, nstat)
         if len(self) > 0 and self.indices.shape[1] != 6:
