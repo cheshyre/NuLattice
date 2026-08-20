@@ -11,11 +11,6 @@ from .davidson import davidson_eigh
 Array = jax.Array
 EigenSolver = Literal["dense", "davidson"]
 
-def _adjoint(x):
-    return jnp.swapaxes(jnp.conj(x), -1, -2)
-
-def _make_hermitian(x):
-    return 0.5 * (x + _adjoint(x))
 
 def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
     density = jnp.zeros((number_of_states, number_of_states), dtype=dtype)
@@ -23,8 +18,98 @@ def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
     density = density.at[hole_indices, hole_indices].set(1.0)
     return density
 
+
+def HF_energy(op1, op2, op3, density):
+    f_1b = jnp.zeros_like(density)
+    f_1b += jnp.asarray(op1.to_dense())
+    f_1b += 0.5 * _contract_2nf(op2, density)
+    f_1b += (1.0 / 6.0) * _contract_3nf(op3, density)
+
+    energy = jnp.einsum("ij,ji", f_1b, density)
+
+    if jnp.abs(jnp.imag(energy)) > 1e-4:
+        print(f"Warning: Computed energy is complex: {energy}")
+        print("Something is probably wrong!")
+
+    return jnp.real(energy)
+
+
+def make_HF_ham(op1, op2, op3, density):
+    fock = jnp.asarray(op1.to_dense().astype(density.dtype))
+    fock += _contract_2nf(op2, density)
+    fock += 0.5 * _contract_3nf(op3, density)
+    return fock
+
+
+def solve_HF(
+    op1,
+    op2,
+    op3,
+    density: Array,
+    mix: float =0.5,
+    eps: float =1e-8,
+    max_iter: int = 100,
+    davidson_max_iter: int = 10,
+    verbose: bool = False,
+    sm: ShardingManager = None,
+    diagonalizer: EigenSolver = "davidson",
+    keep_all_orbitals: bool = True,
+):
+
+    if diagonalizer not in {"davidson", "dense"}:
+        raise ValueError("diagonalizer must be 'davidson' or 'dense'")
+
+    h1_dense, v2_idx, v2_val, w3_idx, w3_val, _density = _prepare_inputs(
+        op1, op2, op3, density, sm
+    )
+
+    prev_energy = 0.0
+    converged = False
+    npart = int(jnp.real(jnp.trace(_density)).round())
+
+    occupied_orbitals = _guess_occupied_orbitals_from_density(_density, npart)
+
+    for i in range(max_iter):
+        occupied_orbitals, energy, _density, diff_density = _iterate_hf_equations(
+            _density, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occupied_orbitals,
+            diagonalizer, davidson_max_iter,
+        )
+
+        dE = jnp.abs(energy - prev_energy)
+
+        if verbose:
+            print(f"Iter {i}: E={energy:.8f}, dE={dE:.6e}, dRho={diff_density:.6e}")
+
+        if (diff_density < eps):
+            converged = True
+            break
+
+        prev_energy = energy
+
+    if keep_all_orbitals:
+        fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(_density, v2_idx, v2_val, w3_idx, w3_val)
+        fock = _build_full_fock_matrix(h1_dense, fock_2b, fock_3b)
+        _, orbs = jnp.linalg.eigh(fock)
+    else:
+        orbs = occupied_orbitals
+
+
+    return energy, orbs, converged
+
+
+# Functions below this are private, they are not guaranteed to be stable between versions of NuLattice
+
+
+def _adjoint(x):
+    return jnp.swapaxes(jnp.conj(x), -1, -2)
+
+
+def _make_hermitian(x):
+    return 0.5 * (x + _adjoint(x))
+
+
 @jax.jit
-def contract_2nf_fused(indices: Array, values: Array, density: Array) -> Array:
+def _contract_2nf_fused(indices: Array, values: Array, density: Array) -> Array:
     """Contract the sparse two-body interaction with a one-body density."""
     p, q, r, s = (indices[:, i] for i in range(4))
     n = density.shape[0]
@@ -38,7 +123,7 @@ def contract_2nf_fused(indices: Array, values: Array, density: Array) -> Array:
 
 
 @jax.jit
-def contract_3nf_fused(indices: Array, values: Array, density: Array) -> Array:
+def _contract_3nf_fused(indices: Array, values: Array, density: Array) -> Array:
     """Contract the sparse three-body interaction with two densities."""
     a, b, c, d, e, f = (indices[:, i] for i in range(6))
     n = density.shape[0]
@@ -59,21 +144,22 @@ def contract_3nf_fused(indices: Array, values: Array, density: Array) -> Array:
     res = res.at[c, f].add(v2 * (density[a, d] * density[b, e] - density[b, d] * density[a, e]))
     return res
 
-def build_2b_and_3b_fock_matrices(
+
+def _build_2b_and_3b_fock_matrices(
     density: Array,
     v2_idx: Array,
     v2_val: Array,
     w3_idx: Array = None,
     w3_val: Array = None,
 ) -> tuple[Array, Array]:
-    fock_2b = _make_hermitian(contract_2nf_fused(v2_idx, v2_val, density))
+    fock_2b = _make_hermitian(_contract_2nf_fused(v2_idx, v2_val, density))
     fock_3b = None
     if (w3_idx is not None) and (w3_val is not None):
-        fock_3b = _make_hermitian(contract_3nf_fused(w3_idx, w3_val, density))
+        fock_3b = _make_hermitian(_contract_3nf_fused(w3_idx, w3_val, density))
     return fock_2b, fock_3b
 
 
-def build_full_fock_matrix(
+def _build_full_fock_matrix(
     h1: Array,
     fock_2b: Array,
     fock_3b: Array = None,
@@ -82,7 +168,8 @@ def build_full_fock_matrix(
         return _make_hermitian(h1 + fock_2b)
     return _make_hermitian(h1 + fock_2b + 0.5 * fock_3b)
 
-def compute_hf_energy_from_fock_matrices(
+
+def _compute_hf_energy_from_fock_matrices(
     density: Array,
     h1: Array,
     fock_2b: Array,
@@ -97,15 +184,14 @@ def compute_hf_energy_from_fock_matrices(
     return jnp.real(e_h1 + 0.5 * e_2b + (1.0 / 6.0) * e_3b)
 
 
-
 @partial(jax.jit, static_argnames=("number_of_particles", "diagonalizer", ))
-def iterate_hf_equations(
+def _iterate_hf_equations(
     density, h1, v2_idx, v2_val, w3_idx, w3_val, number_of_particles, mixing_param, prev_vecs,
     diagonalizer, davidson_max_iter
 ):
-    fock_2b, fock_3b = build_2b_and_3b_fock_matrices(density, v2_idx, v2_val, w3_idx, w3_val)
-    fock = build_full_fock_matrix(h1, fock_2b, fock_3b)
-    energy = compute_hf_energy_from_fock_matrices(density, h1, fock_2b, fock_3b)
+    fock_2b, fock_3b = _build_2b_and_3b_fock_matrices(density, v2_idx, v2_val, w3_idx, w3_val)
+    fock = _build_full_fock_matrix(h1, fock_2b, fock_3b)
+    energy = _compute_hf_energy_from_fock_matrices(density, h1, fock_2b, fock_3b)
 
     _, orbitals = (
         jnp.linalg.eigh(fock)
@@ -121,7 +207,8 @@ def iterate_hf_equations(
 
     return occupied_orbitals, energy, mixed_density, residual_density
 
-def prepare_inputs(op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp.float64):
+
+def _prepare_inputs(op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp.float64):
     has_three_body = op3 is not None and len(op3) > 0
 
     if sm is not None:
@@ -150,62 +237,8 @@ def prepare_inputs(op1, op2, op3, density: Array, sm: ShardingManager, dtype=jnp
 
     return h1, v2_idx, v2_val, w3_idx, w3_val, density
 
-def solve_HF(
-    op1,
-    op2,
-    op3,
-    density: Array,
-    mix: float =0.5,
-    eps: float =1e-8,
-    max_iter: int = 100,
-    davidson_max_iter: int = 10,
-    verbose: bool = False,
-    sm: ShardingManager = None,
-    diagonalizer: EigenSolver = "davidson",
-    keep_all_orbitals: bool = True,
-):
 
-    if diagonalizer not in {"davidson", "dense"}:
-        raise ValueError("diagonalizer must be 'davidson' or 'dense'")
-
-    h1_dense, v2_idx, v2_val, w3_idx, w3_val, _density = prepare_inputs(
-        op1, op2, op3, density, sm
-    )
-
-    prev_energy = 0.0
-    converged = False
-    npart = int(jnp.real(jnp.trace(_density)).round())
-
-    occupied_orbitals = guess_occupied_orbitals_from_density(_density, npart)
-
-    for i in range(max_iter):
-        occupied_orbitals, energy, _density, diff_density = iterate_hf_equations(
-            _density, h1_dense, v2_idx, v2_val, w3_idx, w3_val, npart, mix, occupied_orbitals,
-            diagonalizer, davidson_max_iter,
-        )
-
-        dE = jnp.abs(energy - prev_energy)
-
-        if verbose:
-            print(f"Iter {i}: E={energy:.8f}, dE={dE:.6e}, dRho={diff_density:.6e}")
-
-        if (diff_density < eps):
-            converged = True
-            break
-
-        prev_energy = energy
-
-    if keep_all_orbitals:
-        fock_2b, fock_3b = build_2b_and_3b_fock_matrices(_density, v2_idx, v2_val, w3_idx, w3_val)
-        fock = build_full_fock_matrix(h1_dense, fock_2b, fock_3b)
-        _, orbs = jnp.linalg.eigh(fock)
-    else:
-        orbs = occupied_orbitals
-
-
-    return energy, orbs, converged
-
-def guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.Array:
+def _guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.Array:
     # We generate a random matrix P that serve as trial basis to get the eigenvectors of dens
     # P has the size npart + CONDITION_NUMBER, where CONDITION_NUMBER ensures numerical stability
     dim = len(density)
@@ -258,36 +291,21 @@ def guess_occupied_orbitals_from_density(density: jax.Array, npart: int) -> jax.
     return occupied_orbitals
 
 
-def contract_3nf(op3, density):
+def _contract_3nf(op3, density):
     w3_idx = jnp.asarray(op3.indices)
     w3_val = jnp.asarray(op3.values)
 
-    return contract_3nf_fused(w3_idx, w3_val, density)
+    return _contract_3nf_fused(w3_idx, w3_val, density)
 
 
-def contract_2nf(op2, density):
+def _contract_2nf(op2, density):
     v2_idx = jnp.asarray(op2.indices)
     v2_val = jnp.asarray(op2.values)
 
-    return contract_2nf_fused(v2_idx, v2_val, density)
+    return _contract_2nf_fused(v2_idx, v2_val, density)
 
 
-def HF_energy(op1, op2, op3, density):
-    f_1b = jnp.zeros_like(density)
-    f_1b += jnp.asarray(op1.to_dense())
-    f_1b += 0.5 * contract_2nf(op2, density)
-    f_1b += (1.0 / 6.0) * contract_3nf(op3, density)
-
-    energy = jnp.einsum("ij,ji", f_1b, density)
-
-    if jnp.abs(jnp.imag(energy)) > 1e-4:
-        print(f"Warning: Computed energy is complex: {energy}")
-        print("Something is probably wrong!")
-
-    return jnp.real(energy)
-
-
-def HF_iter(op1, op2, op3, density, mix=0.5):
+def _HF_iter(op1, op2, op3, density, mix=0.5):
     npart = round(jnp.real(jnp.trace(density)))
 
     energy = HF_energy(op1, op2, op3, density)
@@ -299,10 +317,3 @@ def HF_iter(op1, op2, op3, density, mix=0.5):
     mixed_density = mix * new_density + (1.0 - mix) * density
 
     return energy, mixed_density, orbitals
-
-
-def make_HF_ham(op1, op2, op3, density):
-    fock = jnp.asarray(op1.to_dense().astype(density.dtype))
-    fock += contract_2nf(op2, density)
-    fock += 0.5 * contract_3nf(op3, density)
-    return fock

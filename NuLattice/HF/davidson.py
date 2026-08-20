@@ -5,27 +5,9 @@ import jax.numpy as jnp
 
 Array = jax.Array
 
+
 DIVISION_BY_ZERO_THRESHOLD = 1e-12
 SHIFT_REGULARIZATION = 1e-12
-
-def _adjoint(x: Array) -> Array:
-    return jnp.swapaxes(jnp.conj(x), -1, -2)
-
-def _cholesky_qr(x: Array) -> Array:
-    # Compute the small overlap matrix (2k x 2k).
-    S = _adjoint(x) @ x
-    S += SHIFT_REGULARIZATION * jnp.eye(S.shape[0], dtype=S.dtype)
-    L = jnp.linalg.cholesky(S)
-    L_inv = jnp.linalg.inv(L)
-    return x @ _adjoint(L_inv)
-
-def _cqr2(V: Array) -> Array:
-    return _cholesky_qr(_cholesky_qr(V))
-
-def _regularize_denominator(denom: Array, shift: float) -> Array:
-    """Bound small Davidson denominators without reversing their sign."""
-    signed_shift = jnp.where(denom >= 0.0, shift, -shift)
-    return jnp.where(jnp.abs(denom) < shift, signed_shift, denom)
 
 
 @partial(jax.jit, static_argnames=("npart",))
@@ -86,3 +68,29 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     vecs_out = jnp.dot(final_V, final_evecs[:, :npart])
 
     return final_vals, vecs_out
+
+
+# Functions below this are private, they are not guaranteed to be stable between versions of NuLattice
+
+
+def _adjoint(x: Array) -> Array:
+    return jnp.swapaxes(jnp.conj(x), -1, -2)
+
+
+def _cholesky_qr(x: Array) -> Array:
+    # Compute the small overlap matrix (2k x 2k).
+    S = _adjoint(x) @ x
+    S += SHIFT_REGULARIZATION * jnp.eye(S.shape[0], dtype=S.dtype)
+    L = jnp.linalg.cholesky(S)
+    L_inv = jnp.linalg.inv(L)
+    return x @ _adjoint(L_inv)
+
+
+def _cqr2(V: Array) -> Array:
+    return _cholesky_qr(_cholesky_qr(V))
+
+
+def _regularize_denominator(denom: Array, shift: float) -> Array:
+    """Bound small Davidson denominators without reversing their sign."""
+    signed_shift = jnp.where(denom >= 0.0, shift, -shift)
+    return jnp.where(jnp.abs(denom) < shift, signed_shift, denom)
