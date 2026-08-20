@@ -151,7 +151,7 @@ class ThreeBodyOperator(_OperatorBase):
         return 6
 
     @classmethod
-    def from_scipy_coo(matrix, nstat):
+    def from_scipy_coo(cls, matrix, nstat):
         nstat2 = nstat * nstat
 
         p = matrix.row % nstat
@@ -163,8 +163,9 @@ class ThreeBodyOperator(_OperatorBase):
 
         indices = np.column_stack((p, q, r, s, t, u)).astype(np.int32, copy=False)
 
-        return ThreeBodyOperator(indices, matrix.data, nstat)
+        return cls(indices, matrix.data, nstat)
 
+    @classmethod
     def from_scipy_csr(cls, matrix, nstat):
         matrix = matrix.tocoo()
         return cls.from_scipy_coo(matrix, nstat)
