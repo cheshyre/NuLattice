@@ -20,18 +20,26 @@ def init_density(number_of_states: int, hole_indices: Tuple[int], dtype=None):
 
 
 def HF_energy(op1, op2, op3, density):
-    f_1b = jnp.zeros_like(density)
-    f_1b += jnp.asarray(op1.to_dense())
-    f_1b += 0.5 * _contract_2nf(op2, density)
-    f_1b += (1.0 / 6.0) * _contract_3nf(op3, density)
-
-    energy = jnp.einsum("ij,ji", f_1b, density)
+    energy = evaluate_slater_determinant_expectation_value(op1, op2, op3, density, force_real=False)
 
     if jnp.abs(jnp.imag(energy)) > 1e-4:
         print(f"Warning: Computed energy is complex: {energy}")
         print("Something is probably wrong!")
 
     return jnp.real(energy)
+
+
+def evaluate_slater_determinant_expectation_value(op1, op2, op3, density, force_real=False):
+    f_1b = jnp.zeros_like(density)
+    f_1b += jnp.asarray(op1.to_dense())
+    f_1b += 0.5 * _contract_2nf(op2, density)
+    f_1b += (1.0 / 6.0) * _contract_3nf(op3, density)
+
+    exp_val = jnp.einsum("ij,ji", f_1b, density)
+
+    if force_real:
+        return jnp.real(exp_val)
+    return exp_val
 
 
 def make_HF_ham(op1, op2, op3, density):
