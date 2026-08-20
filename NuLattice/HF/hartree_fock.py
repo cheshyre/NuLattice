@@ -98,7 +98,7 @@ def compute_hf_energy_from_fock_matrices(
 
 
 
-@partial(jax.jit, static_argnames=("npart", "diagonalizer", ))
+@partial(jax.jit, static_argnames=("number_of_particles", "diagonalizer", ))
 def iterate_hf_equations(
     density, h1, v2_idx, v2_val, w3_idx, w3_val, number_of_particles, mixing_param, prev_vecs,
     diagonalizer, davidson_max_iter
