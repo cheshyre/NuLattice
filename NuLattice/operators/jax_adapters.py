@@ -54,8 +54,4 @@ def three_body_from_sparse(matrix, nstat):
 
 
 def empty_three_body(nstat, dtype=np.float64):
-    return ThreeBodyOperator(
-        np.empty((0, 6), dtype=np.int32),
-        np.empty(0, dtype=dtype),
-        nstat,
-    )
+    return ThreeBodyOperator.empty(nstat, dtype)

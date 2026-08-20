@@ -80,6 +80,17 @@ class Operator:
 
         return cls(indices, values, nstat)
 
+    @classmethod
+    def _get_expected_rank(cls) -> int:
+        raise NotImplementedError("Do not use the base class, Operator. Instead use OneBodyOperator, TwoBodyOperator, ThreeBodyOperator or similar.")
+
+    @classmethod
+    def empty(cls, nstat: int, dtype=np.float64):
+        return cls(
+            np.empty((0, cls._get_expected_rank()), dtype=np.int32),
+            np.empty(0, dtype=dtype),
+            nstat,
+        )
 
 
 class OneBodyOperator(Operator):
