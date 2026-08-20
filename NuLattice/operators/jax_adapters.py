@@ -1,3 +1,9 @@
+__authors__   =  "Vivek Booshan"
+__credits__   =  ["Vivek Booshan"]
+__copyright__ = "(c) Vivek Booshan"
+__license__   = "BSD-3-Clause"
+__date__      = "2026"
+
 import numpy as np
 
 from NuLattice.utils._jax_types import (
