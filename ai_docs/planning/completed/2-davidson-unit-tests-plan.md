@@ -24,6 +24,8 @@ None.
 
 ### 1. Establish deterministic matrices and comparison utilities
 
+**COMPLETED**
+
 Create `tests/NuLattice/HF/davidson/` with reusable small real and complex
 Hermitian problems. Include diagonal, coupled, clustered, and degenerate
 spectra with exact and perturbed warm-start vectors. Add concise helpers for
@@ -32,6 +34,8 @@ eigenpair residuals, orthogonality, and occupied-subspace projectors.
 Commit: `Add Davidson test inputs and comparison utilities`
 
 ### 2. Test numerical helper functions
+
+**COMPLETED**
 
 Cover `_adjoint` for real, complex, and batched arrays. Test denominator
 regularization on negative, zero, positive, threshold, and unchanged entries.
@@ -43,6 +47,8 @@ Commit: `Test Davidson numerical helpers`
 
 ### 3. Test public eigenpair correctness
 
+**COMPLETED**
+
 Compare `davidson_eigh` with `jax.numpy.linalg.eigh` for the lowest one and
 multiple roots of the deterministic problems. Check eigenvalue ordering,
 output shapes and dtypes, orthogonality, invariant subspaces, and
@@ -52,6 +58,8 @@ shifted copies of the same matrix to guard against spurious zero Ritz values.
 Commit: `Test Davidson eigenpair correctness`
 
 ### 4. Cover iteration and numerical edge behavior
+
+**COMPLETED**
 
 Exercise exact and perturbed warm starts, coincident diagonal/eigenvalue
 preconditioner entries, clustered and degenerate roots, complex Hermitian
@@ -64,6 +72,8 @@ Commit: `Test Davidson iteration and edge behavior`
 
 ### 5. Verify compiled and Hartree-Fock use
 
+**COMPLETED**
+
 Run the focused suite with JAX compilation enabled and confirm stable results
 across repeated calls. Retain the existing Hartree-Fock Davidson integration
 coverage and add only a targeted regression there if a module-level failure
@@ -73,6 +83,8 @@ needed for all correctness tests to pass.
 Commit: `Verify Davidson tests and integration`
 
 ### 6. Document and run the suites
+
+**COMPLETED**
 
 Document the focused pytest command and numerical coverage. Run the Davidson
 suite, the Hartree-Fock tests, and the full non-large-lattice suite. Confirm
