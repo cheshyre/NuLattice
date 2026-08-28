@@ -1,7 +1,7 @@
-@../../AGENTS.md
-@planning.md
-@../development-style.md
-@../unit-tests.md
+@../../../AGENTS.md
+@../planning.md
+@../../development-style.md
+@../../unit-tests.md
 
 # Hartree-Fock public-method unit-test plan
 
@@ -80,6 +80,8 @@ separately.
 Commit: `Add large-lattice Hartree-Fock regression tests`
 
 ### 5. Verify and document the test suites
+
+**COMPLETED**
 
 Run the fast tests, large-lattice tests, and complete pytest suite. Confirm
 that expensive inputs are reused, tests are order-independent, and numerical
