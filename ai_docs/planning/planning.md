@@ -1,4 +1,4 @@
-Use `ai_docs/planning/` to document plans.
+Use `ai_docs/planning/` to document plans. Planning documents should be terse and not too prescriptive. Say what you intend to do, not exactly how you will do it.
 
 Eaching planning file should be name as `[number]-[feature]-plan.md`
 where `[number]` is a unique ID (starting from 1 for the first planned feature).
