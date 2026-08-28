@@ -3,3 +3,4 @@ scipy
 matplotlib
 opt-einsum
 jupyter
+jax==0.7.1
