@@ -67,6 +67,8 @@ Commit: `Test Hartree-Fock solver behavior on small lattices`
 
 ### 4. Add large-lattice interaction regressions
 
+**COMPLETED**
+
 Test the 2017-style interaction at `L=3` and the 2016B-style interaction at
 `L=4`. Compare energies and Fock matrices with the reference implementation
 for He4 and O16, and include cost-appropriate solver comparisons and
