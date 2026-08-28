@@ -33,6 +33,8 @@ None.
 
 ### 1. Add shared test inputs and density coverage
 
+**COMPLETED**
+
 Establish reusable Hamiltonian and density inputs for He4 and O16. Include
 simple `L=2` inputs and the larger example-based interactions. Test
 `init_density` against the reference implementation and validate the physical
