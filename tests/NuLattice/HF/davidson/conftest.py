@@ -109,3 +109,10 @@ def eigenpair_comparisons():
     """Provide reusable residual, overlap, and projector comparisons."""
 
     return EigenpairComparisons
+
+
+@pytest.fixture
+def hermitian_problems():
+    """Provide deterministic problems by descriptive name."""
+
+    return {problem.name: problem for problem in PROBLEMS}
