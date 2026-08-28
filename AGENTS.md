@@ -12,3 +12,11 @@ source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 ```
 
+## Development
+@ai_docs/development-style.md
+
+## Planning
+- When planning, refer to `ai_docs/planning/planning.md`.
+
+## Documentation references
+- When writing unit tests, refer to `ai_docs/unit-tests.md`.
