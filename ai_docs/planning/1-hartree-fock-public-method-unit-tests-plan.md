@@ -55,6 +55,8 @@ Commit: `Test Hartree-Fock energies and Fock matrices`
 
 ### 3. Test solver behavior on small lattices
 
+**COMPLETED**
+
 Compare dense `solve_HF` results with the reference solver for converged and
 nonconverged He4 and O16 cases. Cover the Davidson option, retained-orbital
 options, single-device sharding, verbose output, and invalid diagonalizer
