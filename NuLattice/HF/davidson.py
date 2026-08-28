@@ -30,6 +30,11 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     fixed number of steps rather than to a convergence criterion, which is
     cheap when guess_vecs comes from the previous Hartree-Fock iteration.
 
+    H must be square and Hermitian, 1 <= npart with 2*npart <= H.shape[0],
+    guess_vecs must have shape (H.shape[0], npart) and full column rank, and
+    max_iter must be nonnegative. These preconditions are not checked inside
+    the compiled function.
+
     Frankensteined from https://joshuagoings.com/2013/08/23/davidsons-method/
 
     :param H:          hermitian matrix to be diagonalized
@@ -46,14 +51,15 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
     nstat = H.shape[0]
     D = jnp.diag(H) # Extract diagonal for the preconditioner
 
-    # Initialize a static subspace V of size (nstat, 2 * npart)
-    # WARNING: this only initializes k vectors, but it works for now 
+    # Initialize a static subspace V of size (nstat, 2 * npart). Reduced QR
+    # completes the zero-padded columns rather than leaving null basis vectors
+    # that would introduce spurious zero Ritz values.
     V = jnp.zeros((nstat, 2 * npart), dtype=H.dtype)
     V = V.at[:, :npart].set(guess_vecs)
-    V = _cqr2(V)
+    V = _qr_with_completion(V)
 
-    def body_fun(i, state):
-        V_sub, _ = state
+    def body_fun(i, V_sub):
+        del i
 
         # Project into subspace: M = VT H V -> (2k, 2k)
         M = _adjoint(V_sub) @ (H @ V_sub)
@@ -74,20 +80,19 @@ def davidson_eigh(H: Array, npart: int, guess_vecs: Array, max_iter: int):
         Y = R / denom
 
         V_next = jnp.concatenate([X, Y], axis=1)
-        V_next = _cqr2(V_next)
+        V_next = _qr_with_completion(V_next)
 
-        return V_next, best_vals
+        return V_next
 
     # Run fixed-iteration loop to avoid dynamic compilation tracing
-    initial_vals = jnp.zeros((npart,), dtype=jnp.real(H).dtype)
-    final_V, final_vals = jax.lax.fori_loop(0, max_iter, body_fun, (V, initial_vals))
+    final_V = jax.lax.fori_loop(0, max_iter, body_fun, V)
 
-    # Final extraction of the converged vectors
+    # Extract values and vectors from the same final projected problem.
     final_M = _adjoint(final_V) @ (H @ final_V)
-    _, final_evecs = jnp.linalg.eigh(final_M)
+    final_vals, final_evecs = jnp.linalg.eigh(final_M)
     vecs_out = jnp.dot(final_V, final_evecs[:, :npart])
 
-    return final_vals, vecs_out
+    return final_vals[:npart], vecs_out
 
 
 # Functions below this are private, they are not guaranteed to be stable between versions of NuLattice
@@ -139,6 +144,22 @@ def _cqr2(V: Array) -> Array:
     :rtype:   jax.Array((nstat,ncol), dtype=float or complex)
     """
     return _cholesky_qr(_cholesky_qr(V))
+
+
+def _qr_with_completion(x: Array) -> Array:
+    """
+    orthonormalize columns and complete rank-deficient trailing columns
+
+    Davidson residuals vanish for converged roots, so a restarted subspace can
+    be rank deficient even when its Ritz vectors are valid. Reduced Householder
+    QR supplies orthonormal completion vectors in those trailing positions.
+
+    :param x: subspace matrix with at least as many rows as columns
+    :type x:  jax.Array((nstat,ncol), dtype=float or complex)
+    :return:  matrix with ncol finite, orthonormal columns
+    :rtype:   jax.Array((nstat,ncol), dtype=float or complex)
+    """
+    return jnp.linalg.qr(x, mode="reduced")[0]
 
 
 def _regularize_denominator(denom: Array, shift: float) -> Array:

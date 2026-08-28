@@ -72,10 +72,10 @@ def test_coincident_preconditioner_entries_remain_finite(
 @pytest.mark.parametrize(
     ("problem_name", "root_count", "residual_tolerance"),
     [
-        ("coupled", 2, 2e-6),
-        ("clustered", 3, 2e-7),
-        ("degenerate", 2, 3e-6),
-        ("complex", 2, 5e-5),
+        ("coupled", 2, 1e-6),
+        ("clustered", 3, 1e-8),
+        ("degenerate", 2, 5e-7),
+        ("complex", 2, 2e-5),
     ],
 )
 def test_perturbed_warm_starts_converge_for_numerical_edges(
@@ -91,7 +91,7 @@ def test_perturbed_warm_starts_converge_for_numerical_edges(
     matrix = jnp.asarray(problem.matrix)
     guess = jnp.asarray(problem.perturbed_guess(root_count))
 
-    values, vectors = davidson_eigh(matrix, root_count, guess, max_iter=12)
+    values, vectors = davidson_eigh(matrix, root_count, guess, max_iter=20)
 
     assert np.all(np.isfinite(values))
     assert np.all(np.isfinite(vectors))
