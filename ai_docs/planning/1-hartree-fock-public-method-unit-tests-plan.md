@@ -44,6 +44,8 @@ Commit: `Add Hartree-Fock test inputs and density tests`
 
 ### 2. Test expectation values, energies, and Fock matrices
 
+**COMPLETED**
+
 Compare the JAX and reference results for one-, two-, and three-body terms,
 their combinations, and absent operators. Exercise real and complex densities,
 including the public real/complex behavior of the expectation and energy
