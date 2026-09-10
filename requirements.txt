@@ -4,3 +4,4 @@ matplotlib
 opt-einsum
 jupyter
 jax==0.7.1
+pytest
