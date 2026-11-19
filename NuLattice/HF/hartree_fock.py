@@ -11,6 +11,26 @@ import numpy as np
 from opt_einsum import contract
 #from numba import njit
 
+def _result_dtype(dens, *ops):
+    """
+    returns the dtype needed to hold the density matrix and all matrix elements,
+    i.e., complex as soon as the density or any operator is complex
+
+    :param dens: density matrix
+    :type dens:  numpy.array((:,:))
+    :param ops:  operators as lists of matrix elements [..., value] or as scipy.sparse arrays
+    :type ops:   list[list[int, ..., float or complex]] or scipy.sparse.csr_array
+    :return:     data type for one-body operators built from dens and ops
+    :rtype:      numpy.dtype
+    """
+    dtypes = [dens.dtype]
+    for op in ops:
+        if hasattr(op, "dtype"):  # scipy.sparse array
+            dtypes.append(op.dtype)
+        elif len(op) > 0:
+            dtypes.append(np.asarray([mat_ele[-1] for mat_ele in op]).dtype)
+    return np.result_type(*dtypes)
+
 def get_1body_matrix(myTkin,nstat,dtype=float):
     """
     takes the list of one-body matrix elements and turns it into a square matrix
@@ -40,7 +60,7 @@ def contract_2nf(v2,dens):
     :return:     one-body operator of the same shape as the density matrix dens
     :rtype:      numpy.array((:,:), dtype=float)
     """
-    res = np.zeros_like(dens)
+    res = np.zeros(dens.shape, dtype=_result_dtype(dens, v2))
     num_ele = len(v2)
     for i in range(num_ele):
         [a, b, c, d, val] = v2[i]
@@ -62,7 +82,7 @@ def contract_3nf(w3,dens):
     :return:     one-body operator of the same shape as the density matrix dens
     :rtype:      numpy.array((:,:), dtype=float)
     """
-    res = np.zeros_like(dens)
+    res = np.zeros(dens.shape, dtype=_result_dtype(dens, w3))
     for mat_ele in w3:  # we need all 36 antisymmetric combinations of the ket (abc) and bra (def) single-particle states
         [a, b, c, d, e, f, val] = mat_ele
         # res^p_q += W^{prs}_{qtu} rho^t_r rho^u_s, with dens[p,q] = rho^p_q = <a^dag_q a_p>
@@ -228,7 +248,7 @@ def HF_energy(op1, op2, op3, dens, w3_sparse=False):
     :rtype:      float
     """
     nstat = len(dens)
-    data_type=dens.dtype
+    data_type=_result_dtype(dens, op1, op2, op3)
     dum = get_1body_matrix(op1,nstat,dtype=data_type)
     dum += 0.5*contract_2nf(op2,dens)
     if w3_sparse:
@@ -250,7 +270,7 @@ def contract_3nf_sparse(csr,dens):
     :rtype:      numpy.array((:,:), dtype=float)
     """
     dim = len(dens)
-    res = np.zeros_like(dens)
+    res = np.zeros(dens.shape, dtype=_result_dtype(dens, csr))
     rows, cols = csr.shape
     for i in range(rows):
     # Get start and end indices for current row i
