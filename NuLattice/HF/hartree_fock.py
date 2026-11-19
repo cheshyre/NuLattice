@@ -269,40 +269,41 @@ def contract_3nf_sparse(csr,dens):
             d = j % dim
             e = ((j - d) % dim**2) // dim
             f = (j - d - e*dim) // dim**2
-            res[a,d] += val*( dens[b,e]*dens[c,f]  # (abc), (def), antisym last two pairs
-                             -dens[c,e]*dens[b,f]
-                             -dens[b,f]*dens[c,e]
-                             +dens[c,f]*dens[b,e] )
-            res[b,d] += val*( dens[c,e]*dens[a,f]  # (bca), (def), antisym last two pairs
-                             -dens[a,e]*dens[c,f]
-                             -dens[c,f]*dens[a,e]
-                             +dens[a,f]*dens[c,e] )        
-            res[c,d] += val*( dens[a,e]*dens[b,f]  # (cab), (def), antisym last two pairs
-                             -dens[b,e]*dens[a,f]
-                             -dens[a,f]*dens[b,e]
-                             +dens[b,f]*dens[a,e] )
-            res[a,e] += val*( dens[b,f]*dens[c,d]  # (abc), (efd), antisym last two pairs
-                             -dens[c,f]*dens[b,d]
-                             -dens[b,d]*dens[c,f]
-                             +dens[c,d]*dens[b,f] )
-            res[b,e] += val*( dens[c,f]*dens[a,d]  # (bca), (efd), antisym last two pairs
-                             -dens[a,f]*dens[c,d]
-                             -dens[c,d]*dens[a,f]
-                             +dens[a,d]*dens[c,f] )        
-            res[c,e] += val*( dens[a,f]*dens[b,d]  # (cab), (efd), antisym last two pairs
-                             -dens[b,f]*dens[a,d]
-                             -dens[a,d]*dens[b,f]
-                             +dens[b,d]*dens[a,f] )
-            res[a,f] += val*( dens[b,d]*dens[c,e]  # (abc), (fde), antisym last two pairs
-                             -dens[c,d]*dens[b,e]
-                             -dens[b,e]*dens[c,d]
-                             +dens[c,e]*dens[b,d] )
-            res[b,f] += val*( dens[c,e]*dens[a,f]  # (bca), (fde), antisym last two pairs
-                             -dens[a,e]*dens[c,f]
-                             -dens[c,f]*dens[a,e]
-                             +dens[a,f]*dens[c,e] )        
-            res[c,f] += val*( dens[a,d]*dens[b,e]  # (cab), (fde), antisym last two pairs
-                             -dens[b,d]*dens[a,e]
-                             -dens[a,e]*dens[b,d]
-                             +dens[b,e]*dens[a,d] )
+            # res^p_q += W^{prs}_{qtu} rho^t_r rho^u_s, with dens[p,q] = rho^p_q = <a^dag_q a_p>
+            res[a,d] += val*( dens[e,b]*dens[f,c]  # (abc), (def), antisym last two pairs
+                             -dens[e,c]*dens[f,b]
+                             -dens[f,b]*dens[e,c]
+                             +dens[f,c]*dens[e,b] )
+            res[b,d] += val*( dens[e,c]*dens[f,a]  # (bca), (def), antisym last two pairs
+                             -dens[e,a]*dens[f,c]
+                             -dens[f,c]*dens[e,a]
+                             +dens[f,a]*dens[e,c] )        
+            res[c,d] += val*( dens[e,a]*dens[f,b]  # (cab), (def), antisym last two pairs
+                             -dens[e,b]*dens[f,a]
+                             -dens[f,a]*dens[e,b]
+                             +dens[f,b]*dens[e,a] )
+            res[a,e] += val*( dens[f,b]*dens[d,c]  # (abc), (efd), antisym last two pairs
+                             -dens[f,c]*dens[d,b]
+                             -dens[d,b]*dens[f,c]
+                             +dens[d,c]*dens[f,b] )
+            res[b,e] += val*( dens[f,c]*dens[d,a]  # (bca), (efd), antisym last two pairs
+                             -dens[f,a]*dens[d,c]
+                             -dens[d,c]*dens[f,a]
+                             +dens[d,a]*dens[f,c] )        
+            res[c,e] += val*( dens[f,a]*dens[d,b]  # (cab), (efd), antisym last two pairs
+                             -dens[f,b]*dens[d,a]
+                             -dens[d,a]*dens[f,b]
+                             +dens[d,b]*dens[f,a] )
+            res[a,f] += val*( dens[d,b]*dens[e,c]  # (abc), (fde), antisym last two pairs
+                             -dens[d,c]*dens[e,b]
+                             -dens[e,b]*dens[d,c]
+                             +dens[e,c]*dens[d,b] )
+            res[b,f] += val*( dens[d,c]*dens[e,a]  # (bca), (fde), antisym last two pairs
+                             -dens[d,a]*dens[e,c]
+                             -dens[e,c]*dens[d,a]
+                             +dens[e,a]*dens[d,c] )        
+            res[c,f] += val*( dens[d,a]*dens[e,b]  # (cab), (fde), antisym last two pairs
+                             -dens[d,b]*dens[e,a]
+                             -dens[e,a]*dens[d,b]
+                             +dens[e,b]*dens[d,a] )
     return res
