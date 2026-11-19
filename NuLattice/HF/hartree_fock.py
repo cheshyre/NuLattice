@@ -213,7 +213,9 @@ def solve_HF(op1, op2, op3, dens, mix=0.5, eps=1.e-8, max_iter=100, verbose=Fals
     :type dens:  numpy.array((:,:), dtype=float)
     :param mix:  parameter used in the mixing: mix*new_density + (1-mix)*old_density
     :type mix:   float
-    :param eps:  converegence of energy
+    :param eps:  convergence threshold for the density residual sum_pq |rho_new - rho_old|,
+                 where rho_new = C_occ C_occ^dagger is the unmixed density obtained from
+                 the Fock matrix of rho_old (independent of mix)
     :type eps:   float
     :param max_iter:  maximum number of HF iterations
     :type max_iter:   float
@@ -227,7 +229,7 @@ def solve_HF(op1, op2, op3, dens, mix=0.5, eps=1.e-8, max_iter=100, verbose=Fals
     for i in range(max_iter):
         erg, new_dens, vecs = HF_iter(op1, op2, op3, my_dens, mix=mix)
         diff = np.abs(erg-erg0)
-        diff_dens = np.sum(np.abs(new_dens-my_dens))
+        diff_dens = np.sum(np.abs(new_dens-my_dens))/mix # new_dens - my_dens = mix*(rho_new - rho_old)
         if verbose:
             print(i, "E=", erg, ", Delta E=", diff, ", Delta rho =", diff_dens)
         if diff_dens < eps and i > 1:
