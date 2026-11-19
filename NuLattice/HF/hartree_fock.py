@@ -11,6 +11,8 @@ import numpy as np
 from opt_einsum import contract
 #from numba import njit
 
+HERM_TOL = 1.e-10  # relative tolerance for the hermiticity check of the Fock matrix
+
 def _result_dtype(dens, *ops):
     """
     returns the dtype needed to hold the density matrix and all matrix elements,
@@ -187,6 +189,11 @@ def HF_iter(op1, op2, op3, dens, mix=0.5):
     npart=round(np.real(np.trace(dens))) # rounds to nearest integer
     erg = HF_energy(op1, op2, op3, dens)
     hf = make_HF_ham(op1, op2, op3, dens)
+    herm_err = np.max(np.abs(hf - hf.conj().T))
+    if herm_err > HERM_TOL*max(1.0, np.max(np.abs(hf))):
+        raise ValueError(f"Fock matrix is not Hermitian (max |F - F^dagger| = {herm_err:.3e}); "
+                         "check that the density and the operators are Hermitian")
+    hf = 0.5*(hf + hf.conj().T) # eigh reads only one triangle; remove round-off asymmetry
     vals, vecs = np.linalg.eigh(hf)
     new_dens=contract("pi,qi->pq", vecs[:,0:npart], np.conjugate(vecs[:,0:npart]) )
     res_dens = mix*new_dens + (1.0-mix)*dens
