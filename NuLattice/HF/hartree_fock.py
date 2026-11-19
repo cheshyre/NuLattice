@@ -141,8 +141,8 @@ def make_HF_ham(op1,op2,op3,dens):
     :rtype:      numpy.array((:,:), dtype=float)
     """
     nstat = len(dens)
-    denstype=dens.dtype
-    hf_op = get_1body_matrix(op1,nstat).astype(denstype)
+    hf_type=_result_dtype(dens, op1, op2, op3)
+    hf_op = get_1body_matrix(op1,nstat,dtype=hf_type)
     hf_op += contract_2nf(op2,dens)
     hf_op += 0.5*contract_3nf(op3,dens)
     return hf_op
