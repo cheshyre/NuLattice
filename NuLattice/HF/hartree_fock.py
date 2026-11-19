@@ -44,11 +44,11 @@ def contract_2nf(v2,dens):
     num_ele = len(v2)
     for i in range(num_ele):
         [a, b, c, d, val] = v2[i]
-        
-        res[a,c] += val*dens[b,d] #1
-        res[b,c] -= val*dens[a,d] #P(ab)
-        res[a,d] -= val*dens[b,c] #P(cd)
-        res[b,d] += val*dens[a,c] #P(ab)P(cd) 
+        # res^a_c += V^{ab}_{cd} rho^d_b, with dens[p,q] = rho^p_q = <a^dag_q a_p>
+        res[a,c] += val*dens[d,b] #1
+        res[b,c] -= val*dens[d,a] #P(ab)
+        res[a,d] -= val*dens[c,b] #P(cd)
+        res[b,d] += val*dens[c,a] #P(ab)P(cd)
     return res
 
 def contract_3nf(w3,dens):
