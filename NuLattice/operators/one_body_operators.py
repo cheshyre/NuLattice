@@ -30,7 +30,21 @@ def list_to_sparse1b(mylist, sparsetype="csr"):
     if sparsetype == "coo":
         return sparse.coo_array((val, (row,col)) )
     else:
-        return sparse.csr_array((val, (row,col)) ) 
+        return sparse.csr_array((val, (row,col)) )
+
+def sparse1b_to_list(mat):
+    """
+    transforms a sparse 1-body operator to a list of matrix elements; the inverse of list_to_sparse1b
+    :param mat: the one-body operator
+    :type mat:  scipy sparse array or matrix of any format, e.g., from list_to_sparse1b
+    :return:    the nonzero matrix elements, ordered by row p and then column q; duplicate entries
+                are summed and explicitly stored zeros are dropped; mat is not modified
+    :rtype:     list of lists [[p,q, val], ...] with int p, q, and real or complex val
+    """
+    coo = sparse.coo_array(mat, copy=True)
+    coo.sum_duplicates()
+    coo.eliminate_zeros()
+    return [[int(p), int(q), val.item()] for p, q, val in zip(coo.row, coo.col, coo.data)]
 
 def indConv(ind, myL):
     """
