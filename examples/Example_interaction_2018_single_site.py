@@ -5,9 +5,15 @@ import NuLattice.operators.two_body_operators as twbops
 import NuLattice.operators.three_body_operators as thbops
 import NuLattice.lattice as lat
 import NuLattice.constants_NLEFT as nleftConsts
+import NuLattice.constants as consts
 if __name__ == '__main__':
     thisL = 4
     a = 1.0 / 150.0
+    # Lu et al., PLB 797, 134863 (2019) quote a = (150 MeV)^-1 = 1.32 fm, which needs the CODATA
+    # hbar*c (197.3269804 MeV fm -> a = 1.3155 fm), not nleftConsts.hbarc = 197 MeV fm (1.3133 fm).
+    # hbar*c only enters conversions to fm, e.g., densities; the energies do not depend on it.
+    hbarc = consts.hbarc
+    print(f"lattice spacing a = {a * hbarc:.4f} fm")
     lattice = lat.get_lattice(thisL)
     myTkin=obops.tKin(thisL, 3, a,mass=nleftConsts.mass)
     verbose = True
